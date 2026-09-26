@@ -39,9 +39,9 @@ export function StudioApp() {
           <button
             type="button"
             onClick={() => setRestarting(true)}
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            New optimization
+  className="inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  >
+  Start new optimization
           </button>
         )}
       </header>
