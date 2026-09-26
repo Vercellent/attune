@@ -13,15 +13,9 @@ type TurnResult = { reply: string | null; replay: Replay | null; status: string;
 const GAZE_INTERVAL = 200
 
 async function createSession(): Promise<Session> {
-  const resume = sessionStorage.getItem('lab-session') ?? undefined
-  const res = await fetch('/api/sessions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ resume }),
-  })
+  const res = await fetch('/api/sessions', { method: 'POST' })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? 'Could not start')
-  sessionStorage.setItem('lab-session', data.sessionId)
   return data
 }
 

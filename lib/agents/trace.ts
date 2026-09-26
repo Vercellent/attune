@@ -8,8 +8,9 @@ import {
   MessageAddedEvent,
   ModelMessageEvent,
 } from '@strands-agents/sdk'
-import { logActivity } from '../activity'
+import { logActivity as studioLog } from '../activity'
 import { recordUsage } from '../mission'
+import type { ActivityKind } from '../types'
 import { usageMeter } from './model'
 
 type AgentConfig = NonNullable<ConstructorParameters<typeof Agent>[0]>
@@ -36,9 +37,16 @@ function resultText(blocks: readonly unknown[]) {
   return (blocks as LooseBlock[]).map((b) => b.text ?? stringify(b.json ?? b)).join('\n')
 }
 
-/** A Strands agent whose full lifecycle is streamed to the studio shell. */
-export function tracedAgent(label: string, config: AgentConfig) {
+export type LogSink = (kind: ActivityKind, text: string, detail?: string) => void
+
+/**
+ * A Strands agent whose full lifecycle is streamed to a log. Studio agents default to the studio feed;
+ * the interviewer passes its per-session sink so participant text never lands in the studio feed.
+ */
+export function tracedAgent(label: string, config: AgentConfig, sink?: LogSink) {
   const agent = new Agent({ printer: false, ...config })
+  const logActivity = (_label: string, kind: ActivityKind, text: string, detail?: string) =>
+    sink ? sink(kind, text, detail) : studioLog(label, kind, text, detail)
 
   const meter = usageMeter(config.model)
   let baseline = { inputTokens: 0, outputTokens: 0 }

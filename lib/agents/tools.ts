@@ -5,12 +5,12 @@ import { collections } from '../db'
 import { searchMemory } from '../memory'
 import { LAB_ID, TOPICS, type RetrievedMemory } from '../types'
 
-/** Semantic tier: Atlas Vector Search over findings. Retrievals are recorded for provenance. */
+/** Semantic tier: Atlas Automated Embedding search over studio findings. Retrievals are recorded for provenance. */
 export function memoryTool(recorded: RetrievedMemory[] = [], k = 5) {
   return tool({
     name: 'search_research_memory',
     description:
-      'Semantic search (MongoDB Atlas Vector Search) over research findings from all earlier rounds. Use before proposing or concluding anything.',
+      'Semantic search (MongoDB Atlas Automated Embedding) over research findings from all earlier rounds. Use before proposing or concluding anything.',
     inputSchema: z.object({
       query: z.string().describe('Natural-language question, e.g. "why do people hesitate at checkout?"'),
       topics: z.array(z.enum(TOPICS)).optional(),
@@ -68,7 +68,7 @@ export function readDigestsTool() {
     callback: async ({ fromEpoch }) => {
       const { digests } = await collections()
       const docs = await digests
-        .find({ labId: LAB_ID, epoch: { $gte: fromEpoch ?? 0 } }, { projection: { embedding: 0 } })
+        .find({ labId: LAB_ID, epoch: { $gte: fromEpoch ?? 0 } })
         .sort({ epoch: 1 })
         .limit(8)
         .toArray()

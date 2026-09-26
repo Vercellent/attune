@@ -1,6 +1,7 @@
 import 'server-only'
 import { collections, newId } from './db'
-import { embed, ensureVectorIndex, findingText } from './memory'
+import { ensureMemoryIndexes, findingText } from './memory'
+import { hashToken, newSessionToken, tokenMatches } from './session-token'
 import { computeMetrics, findMoments, snapshotOf, summarizeGaze, summarizeTrace } from './scoring'
 import { SHOP_HTML } from './shop'
 import { buildVariant, reconSite } from './agents/builder'
@@ -8,7 +9,16 @@ import { planGeneration, synthesizeGeneration } from './agents/strategist'
 import { compactEpoch, evolveHarness } from './agents/architect'
 import { navigatorConfirm, navigatorStep, type PageElement } from './agents/navigator'
 import { logActivity } from './activity'
-import { configOf, creditHarness, getHarness, listHarness, seedHarness } from './harness'
+import {
+  buildInterviewSnapshot,
+  configOf,
+  creditHarness,
+  getHarness,
+  getHarnessVersion,
+  listHarness,
+  seedHarness,
+  settleHarness,
+} from './harness'
 import { getMission, initMission, milestone, updateProgress } from './mission'
 import {
   LAB_ID,
@@ -76,6 +86,7 @@ export async function startCapture(input: Pick<Brief, 'objective' | 'targetUrl' 
     c.activity.deleteMany({ labId: LAB_ID }),
     c.variants.deleteMany({ labId: LAB_ID }),
     c.sessions.deleteMany({ labId: LAB_ID }),
+    c.sessionLogs.deleteMany({ labId: LAB_ID }),
     c.findings.deleteMany({ labId: LAB_ID }),
     c.ownerMessages.deleteMany({ labId: LAB_ID }),
     c.captures.deleteMany({ labId: LAB_ID }),
@@ -108,6 +119,8 @@ export async function startCapture(input: Pick<Brief, 'objective' | 'targetUrl' 
   logActivity('orchestrator', 'start', `new client · ${input.objective}`, `${input.targetUrl}\n${input.optimize}`)
   await initMission(`Optimize "${input.optimize}" on ${input.targetUrl}`, target)
   await seedHarness()
+  // Atlas takes a minute or two to build autoEmbed indexes; start now so they're ready before round 1 closes.
+  void ensureMemoryIndexes()
 }
 
 export async function captureStep(opts: {
@@ -158,7 +171,7 @@ export async function bootstrapLab() {
     const html = SHOP_HTML
     const spec = await reconSite(html, lab.brief, lab.journeySummary ?? '')
     await patchLab({ spec, baselineHtml: html, phase: 'running', step: 'Planning round 1' })
-    await ensureVectorIndex()
+    await ensureMemoryIndexes()
     await postOwnerUpdate(
       `I studied your ${lab.flow.join(' → ')} flow. Biggest risks: ${spec.frictionPoints.slice(0, 3).join('; ')}. Round 1 is live — share the invite link with testers.`,
     )
@@ -280,17 +293,27 @@ async function buildGeneration(
 
 /* ---------------- 2. Tester sessions ---------------- */
 
-export async function createSession(resumeId?: string) {
+/**
+ * Joins a participant. Resuming requires the HttpOnly cookie from the original join.
+ * The interviewer's snapshot is frozen here from the harness version this round runs under.
+ */
+export async function createSession(resume: { sessionId: string; token: string } | null) {
   const c = await collections()
   const lab = await getLab()
   if (!lab || lab.phase === 'capturing' || lab.phase === 'ready' || !lab.generation) return null
-  if (resumeId) {
+  if (resume) {
     const existing = await c.sessions.findOne(
-      { _id: resumeId, labId: LAB_ID, generation: lab.generation, status: 'briefing' },
-      { projection: { variantId: 1 } },
+      { _id: resume.sessionId, labId: LAB_ID, generation: lab.generation, status: 'briefing' },
+      { projection: { variantId: 1, tokenHash: 1, 'snapshot.task': 1 } },
     )
-    if (existing) return { sessionId: existing._id, variantId: existing.variantId, task: lab.brief.task }
+    if (existing && tokenMatches(resume.token, existing.tokenHash)) {
+      return { sessionId: existing._id, variantId: existing.variantId, task: existing.snapshot?.task ?? lab.brief.task, token: null }
+    }
   }
+  const generation = await c.generations.findOne({ labId: LAB_ID, number: lab.generation }, { projection: { harnessVersion: 1 } })
+  const roundHarness = (generation && (await getHarnessVersion(generation.harnessVersion))) || (await getHarness())
+  const snapshot = buildInterviewSnapshot(roundHarness, lab.brief.task)
+  const token = newSessionToken()
   const pool = await c.variants.find({ labId: LAB_ID, generation: lab.generation }, { projection: { html: 0 } }).toArray()
   if (!pool.length) return null
   const counts = await c.sessions
@@ -307,6 +330,8 @@ export async function createSession(resumeId?: string) {
     generation: lab.generation,
     variantId: variant._id,
     variantKey: variant.key,
+    tokenHash: hashToken(token),
+    snapshot,
     status: 'briefing',
     camera: false,
     events: [],
@@ -324,8 +349,12 @@ export async function createSession(resumeId?: string) {
     endedAt: null,
   }
   await c.sessions.insertOne(session)
-  logActivity('orchestrator', 'system', `tester joined · round ${lab.generation} · assigned variant ${variant.key}`)
-  return { sessionId: session._id, variantId: variant._id, task: lab.brief.task }
+  logActivity(
+    'orchestrator',
+    'system',
+    `tester joined · round ${lab.generation} · assigned variant ${variant.key} · interview frozen on harness v${snapshot.harnessVersion}`,
+  )
+  return { sessionId: session._id, variantId: variant._id, task: lab.brief.task, token }
 }
 
 export async function startTask(sessionId: string, camera: boolean) {
@@ -390,11 +419,18 @@ export async function getReplayEvents(sessionId: string, endTs: number) {
 
 /* ---------------- 3. Closing rounds: synthesize → evolve harness → next round ---------------- */
 
+/** The exact harness version a round was built with, even if a later version has since become active. */
+async function roundHarness(number: number) {
+  const { generations } = await collections()
+  const generation = await generations.findOne({ labId: LAB_ID, number }, { projection: { harnessVersion: 1 } })
+  return (generation && (await getHarnessVersion(generation.harnessVersion))) || getHarness()
+}
+
 export async function readyToAdvance() {
   const c = await collections()
   const lab = await getLab()
   if (!lab || lab.phase !== 'running' || !lab.autopilot) return false
-  const harness = configOf(await getHarness())
+  const harness = configOf(await roundHarness(lab.generation))
   const pool = await c.variants.find({ labId: LAB_ID, generation: lab.generation }, { projection: { _id: 1 } }).toArray()
   const done = await c.sessions
     .aggregate<{ _id: string; n: number }>([
@@ -411,7 +447,7 @@ export async function advanceLab() {
     const lab = await getLab()
     if (!lab?.spec) throw new Error('Lab is not running')
     const number = lab.generation
-    const harnessDoc = await getHarness()
+    const harnessDoc = await roundHarness(number)
     const harness = configOf(harnessDoc)
     const [pool, sessions] = await Promise.all([
       c.variants.find({ labId: LAB_ID, generation: number }).toArray(),
@@ -445,14 +481,17 @@ export async function advanceLab() {
       labId: LAB_ID,
       generation: number,
       ...f,
-      embedding: null,
+      text: findingText(f),
       createdAt: new Date(),
     }))
     if (findings.length) {
-      const vectors = await embed(findings.map(findingText), 'document')
-      vectors?.forEach((vec, i) => (findings[i].embedding = vec))
       await c.findings.insertMany(findings)
-      logActivity('synthesizer', 'memory', `${findings.length} finding(s) written to Atlas${vectors ? ' with Voyage embeddings' : ''}`, findings.map((f) => `[${f.topic}] ${f.observation}`).join('\n'))
+      logActivity(
+        'synthesizer',
+        'memory',
+        `${findings.length} finding(s) written to Atlas · embedded automatically by the autoEmbed index`,
+        findings.map((f) => `[${f.topic}] ${f.observation}`).join('\n'),
+      )
     }
 
     await c.generations.updateOne(
@@ -469,6 +508,7 @@ export async function advanceLab() {
       },
     )
     await creditHarness(harnessDoc.version, winner.snap.score)
+    const activeHarness = await settleHarness({ ...harnessDoc, scoreAfter: winner.snap.score }, winner.snap)
 
     const experiments = await c.sessions.countDocuments({ labId: LAB_ID, status: 'done' })
     const epoch = number
@@ -500,7 +540,7 @@ export async function advanceLab() {
     const trajectory = history.map((g) => ({ generation: g.number, harness: g.harnessVersion, snapshot: g.metrics as MetricSnapshot }))
     const gen = history.at(-1)!
     const evolved = await evolveHarness({
-      current: harnessDoc,
+      current: activeHarness,
       trajectory,
       telemetry: `builds ${gen.telemetry.buildsAttempted} attempted / ${gen.telemetry.buildsFailed} failed · QA retries ${gen.telemetry.qaRetries} · sessions this round ${sessions.length} · avg interview turns ${
         sessions.length ? (sessions.reduce((a, s) => a + s.messages.filter((m) => m.role === 'assistant').length, 0) / sessions.length).toFixed(1) : 0
@@ -508,8 +548,8 @@ export async function advanceLab() {
       findings: synthesis.findings.map((f) => `[${f.topic}, ${f.confidence}] ${f.observation}`),
       remaining: target - experiments,
     })
-    const next = evolved ?? harnessDoc
-    if (!evolved) logActivity('architect', 'evolve', `harness v${harnessDoc.version} kept · no change justified by the metrics`)
+    const next = evolved ?? activeHarness
+    if (!evolved) logActivity('architect', 'evolve', `round ${number + 1} runs on active harness v${activeHarness.version}`)
 
     await buildGeneration(
       { ...lab, playbook: synthesis.playbook },
@@ -540,7 +580,7 @@ export async function getOverview() {
     c.sessions
       .aggregate<{ _id: string; n: number }>([{ $match: { labId: LAB_ID } }, { $group: { _id: '$status', n: { $sum: 1 } } }])
       .toArray(),
-    c.findings.find({ labId: LAB_ID }, { projection: { embedding: 0 } }).sort({ createdAt: -1 }).limit(20).toArray(),
+    c.findings.find({ labId: LAB_ID }).sort({ createdAt: -1 }).limit(20).toArray(),
   ])
   const stat = (s: string) => sessionStats.find((x) => x._id === s)?.n ?? 0
   const firstVariant = variants.find((v) => v.generation === 1 && v.isControl) ?? null
@@ -550,6 +590,9 @@ export async function getOverview() {
     harness: harness.map((h) => ({
       version: h.version,
       author: h.author,
+      status: h.status,
+      evaluation: h.evaluation,
+      validationErrors: h.validationErrors,
       rationale: h.rationale,
       changes: h.changes,
       scoreAtAdoption: h.scoreAtAdoption,

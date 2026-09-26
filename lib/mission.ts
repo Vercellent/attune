@@ -1,8 +1,9 @@
 import 'server-only'
 import { collections } from './db'
 import { logActivity } from './activity'
-import { searchMemory } from './memory'
-import { rulesFor } from './harness'
+import { searchDigests, searchMemory } from './memory'
+import { rulesFor } from './harness-policy'
+import { DEFAULT_TARGETS, describeGoals, goalGaps } from './goals'
 import { LAB_ID, type AgentRole, type HarnessConfig, type MetricSnapshot, type MissionDoc, type RetrievedMemory } from './types'
 
 export async function getMission() {
@@ -16,6 +17,7 @@ export async function initMission(objective: string, target: number) {
     _id: LAB_ID,
     objective,
     target,
+    targets: DEFAULT_TARGETS,
     experiments: 0,
     epoch: 0,
     baseline: null,
@@ -66,6 +68,11 @@ export async function updateProgress(opts: { experiments: number; epoch: number;
     { _id: LAB_ID },
     { $set: { experiments: opts.experiments, epoch: opts.epoch, baseline, best, updatedAt: new Date() } },
   )
+  const targets = mission.targets ?? DEFAULT_TARGETS
+  const before = new Set(goalGaps(mission.best, targets).filter((g) => g.gap === 0).map((g) => g.metric))
+  for (const g of goalGaps(best, targets)) {
+    if (g.gap === 0 && !before.has(g.metric)) await milestone(`goal reached · ${g.metric} ${g.current} ≥ ${g.target}`)
+  }
   const tokens = mission.tokens.total
   logActivity(
     'mission',
@@ -92,18 +99,19 @@ export async function contextPack(role: AgentRole, config: HarnessConfig, query?
   if (mission) {
     parts.push(
       `MISSION: ${mission.objective}\nProgress: ${mission.experiments}/${mission.target} experiments, epoch ${mission.epoch}. Baseline score ${mission.baseline?.score ?? 'n/a'}, best so far ${mission.best?.score ?? 'n/a'}.`,
+      describeGoals(mission.best, mission.targets),
     )
   }
   const rules = rulesFor(config, role)
   if (rules) parts.push(rules.trim())
 
-  const recent = await digests
-    .find({ labId: LAB_ID }, { projection: { embedding: 0 } })
-    .sort({ epoch: -1 })
-    .limit(config.context.digestCount)
-    .toArray()
+  const recent = await digests.find({ labId: LAB_ID }).sort({ epoch: -1 }).limit(config.context.digestCount).toArray()
   if (recent.length) {
     parts.push(`COMPACTED HISTORY (most recent first):\n${recent.map((d) => `[epoch ${d.epoch}] ${d.text}`).join('\n\n')}`)
+  }
+  const older = query && recent.length ? await searchDigests(query, 2, recent.map((d) => d.epoch)) : []
+  if (older.length) {
+    parts.push(`RELEVANT OLDER EPOCHS (semantic recall):\n${older.map((d) => `[epoch ${d.epoch}] ${d.text}`).join('\n\n')}`)
   }
 
   let mode = 'none'
@@ -123,7 +131,7 @@ export async function contextPack(role: AgentRole, config: HarnessConfig, query?
   logActivity(
     role,
     'context',
-    `context pack · mission + ${rules ? 'rules + ' : ''}${recent.length} digest(s) + ${memoryUsed.length} finding(s) [${mode}] · ${text.length.toLocaleString()}/${budget.toLocaleString()} chars${clipped ? ' (clipped)' : ''}`,
+    `context pack · mission + goals + ${rules ? 'rules + ' : ''}${recent.length} digest(s) + ${older.length} recalled epoch(s) + ${memoryUsed.length} finding(s) [${mode}] · ${text.length.toLocaleString()}/${budget.toLocaleString()} chars${clipped ? ' (clipped)' : ''}`,
     text,
   )
   return { text, memoryUsed }

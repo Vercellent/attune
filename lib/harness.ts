@@ -1,83 +1,39 @@
 import 'server-only'
 import { collections, newId } from './db'
 import { logActivity } from './activity'
-import {
-  AGENT_ROLES,
-  LAB_ID,
-  type AgentRole,
-  type HarnessChange,
-  type HarnessConfig,
-  type HarnessDoc,
-} from './types'
+import { configOf, decidePromotion, describeConfig, detectRegression, seedConfig, validateCandidate, withGuardrailsOf } from './harness-policy'
+import { LAB_ID, type HarnessChange, type HarnessConfig, type HarnessDoc, type HarnessEvaluation, type MetricSnapshot } from './types'
 
-/** Tools every role always keeps; the Architect can only grant/revoke the optional ones. */
-export const CORE_TOOLS: Record<AgentRole, string[]> = {
-  strategist: [],
-  builder: ['read_site', 'edit_site', 'run_qa', 'finish'],
-  interviewer: ['get_behavior_trace', 'save_insight', 'end_interview'],
-  synthesizer: [],
-}
+export * from './harness-policy'
 
-export const OPTIONAL_TOOLS: Record<AgentRole, string[]> = {
-  strategist: ['search_research_memory', 'recall_sessions', 'read_digests'],
-  builder: ['search_research_memory'],
-  interviewer: ['get_attention', 'show_replay', 'search_research_memory'],
-  synthesizer: ['search_research_memory', 'recall_sessions'],
-}
-
-export const LIMITS = {
-  memoryK: [2, 12],
-  digestCount: [1, 5],
-  maxContextChars: [4000, 24000],
-  maxEdits: [8, 40],
-  behavioralQuestions: [0, 3],
-  journeyQuestions: [1, 4],
-  replayMoments: [0, 3],
-  maxTurns: [4, 12],
-  variantsPerGeneration: [2, 4],
-  sessionsPerVariant: [1, 4],
-} as const
-
-export function seedConfig(): HarnessConfig {
-  return {
-    rules: [
-      { id: 'r1', agent: 'strategist', text: 'Test one idea per variant so outcomes stay attributable.', addedIn: 1 },
-      { id: 'r2', agent: 'builder', text: 'Match the existing design tokens; never introduce new fonts or colors.', addedIn: 1 },
-      { id: 'r3', agent: 'interviewer', text: 'Never lead the participant; ask open questions about expectations.', addedIn: 1 },
-      { id: 'r4', agent: 'synthesizer', text: 'Mark confidence low when a variant has fewer than 3 sessions.', addedIn: 1 },
-    ],
-    context: { memoryK: 5, digestCount: 2, traceDetail: 'summary', maxContextChars: 12000 },
-    guardrails: {
-      maxEdits: 24,
-      protectedFacts: ['Product prices', 'Shipping cost amount'],
-      forbidden: ['Removing the checkout flow', 'Fake urgency or countdown timers'],
-    },
-    tools: {
-      strategist: ['search_research_memory'],
-      builder: [...CORE_TOOLS.builder],
-      interviewer: [...CORE_TOOLS.interviewer, 'get_attention', 'show_replay'],
-      synthesizer: ['search_research_memory'],
-    },
-    interview: { behavioralQuestions: 2, journeyQuestions: 2, replayMoments: 1, maxTurns: 8 },
-    experiment: { variantsPerGeneration: 3, sessionsPerVariant: 2 },
-  }
-}
-
-export function configOf(doc: HarnessDoc): HarnessConfig {
-  const { rules, context, guardrails, tools, interview, experiment } = doc
-  return structuredClone({ rules, context, guardrails, tools, interview, experiment })
-}
-
-export async function getHarness(): Promise<HarnessDoc> {
+async function latestWithStatus(status: HarnessDoc['status']) {
   const { harness } = await collections()
-  const current = await harness.find({ labId: LAB_ID }).sort({ version: -1 }).limit(1).next()
-  if (current) return current
-  return seedHarness()
+  return harness.find({ labId: LAB_ID, status }).sort({ version: -1 }).limit(1).next()
+}
+
+export async function getActiveHarness(): Promise<HarnessDoc> {
+  return (await latestWithStatus('active')) ?? seedHarness()
+}
+
+/** The harness the next round runs under: a pending trial if one exists, otherwise the active version. */
+export async function getHarness(): Promise<HarnessDoc> {
+  return (await latestWithStatus('trial')) ?? getActiveHarness()
+}
+
+export async function getHarnessVersion(version: number) {
+  const { harness } = await collections()
+  return harness.findOne({ labId: LAB_ID, version })
 }
 
 export async function listHarness() {
   const { harness } = await collections()
   return harness.find({ labId: LAB_ID }).sort({ version: 1 }).toArray()
+}
+
+async function nextVersion() {
+  const { harness } = await collections()
+  const last = await harness.find({ labId: LAB_ID }).sort({ version: -1 }).limit(1).next()
+  return (last?.version ?? 0) + 1
 }
 
 export async function seedHarness(): Promise<HarnessDoc> {
@@ -89,58 +45,73 @@ export async function seedHarness(): Promise<HarnessDoc> {
     version: 1,
     parent: null,
     author: 'seed',
+    status: 'active',
     rationale: 'Initial harness: conservative defaults before any evidence.',
     changes: [],
+    validationErrors: [],
+    evaluation: null,
     scoreAtAdoption: null,
     scoreAfter: null,
     createdAt: new Date(),
     ...config,
   }
-  await harness.updateOne({ labId: LAB_ID, version: 1 }, { $setOnInsert: doc }, { upsert: true })
-  const seeded = (await harness.findOne({ labId: LAB_ID, version: 1 }))!
-  logActivity('harness', 'evolve', 'v1 seeded', describeConfig(config))
-  return seeded
+  const res = await harness.updateOne({ labId: LAB_ID, version: 1 }, { $setOnInsert: doc }, { upsert: true })
+  if (res.upsertedCount) logActivity('harness', 'evolve', 'v1 seeded · active', describeConfig(config))
+  return (await harness.findOne({ labId: LAB_ID, version: 1 }))!
 }
 
-export function describeConfig(c: HarnessConfig) {
-  return [
-    ...c.rules.map((r) => `rule[${r.agent}] ${r.text}`),
-    `context  memoryK=${c.context.memoryK} digests=${c.context.digestCount} trace=${c.context.traceDetail} budget=${c.context.maxContextChars}ch`,
-    `guard    maxEdits=${c.guardrails.maxEdits} protect=[${c.guardrails.protectedFacts.join(', ')}] forbid=[${c.guardrails.forbidden.join(', ')}]`,
-    ...AGENT_ROLES.map((r) => `tools[${r}] ${c.tools[r].join(', ') || '—'}`),
-    `interview behavioral=${c.interview.behavioralQuestions} journey=${c.interview.journeyQuestions} replays=${c.interview.replayMoments} maxTurns=${c.interview.maxTurns}`,
-    `experiment variants/gen=${c.experiment.variantsPerGeneration} sessions/variant=${c.experiment.sessionsPerVariant}`,
-  ].join('\n')
-}
-
-export async function commitHarness(opts: {
+/**
+ * The Architect never edits the live harness. A proposal is validated, then either
+ * runs as a one-round trial (architect) or, for a rollback to proven settings, becomes active directly.
+ */
+export async function proposeHarness(opts: {
   base: HarnessDoc
   config: HarnessConfig
   changes: HarnessChange[]
   rationale: string
-  author: HarnessDoc['author']
+  author: 'architect' | 'rollback'
   scoreAtAdoption: number | null
-}): Promise<HarnessDoc> {
+}): Promise<HarnessDoc | null> {
   const { harness } = await collections()
+  const validationErrors = validateCandidate(configOf(opts.base), opts.config)
+  const status: HarnessDoc['status'] = validationErrors.length ? 'rejected' : opts.author === 'rollback' ? 'active' : 'trial'
   const doc: HarnessDoc = {
     _id: newId(),
     labId: LAB_ID,
-    version: opts.base.version + 1,
+    version: await nextVersion(),
     parent: opts.base.version,
     author: opts.author,
+    status,
     rationale: opts.rationale,
     changes: opts.changes,
+    validationErrors,
+    evaluation: null,
     scoreAtAdoption: opts.scoreAtAdoption,
     scoreAfter: null,
     createdAt: new Date(),
     ...opts.config,
   }
   await harness.insertOne(doc)
-  logActivity('harness', 'evolve', `v${opts.base.version} → v${doc.version} · ${opts.rationale}`, describeConfig(opts.config))
-  for (const c of opts.changes) {
-    logActivity('harness', 'evolve', `${c.path}: ${c.before || '∅'} → ${c.after || '∅'}`, c.why)
+
+  if (validationErrors.length) {
+    logActivity('harness', 'error', `v${doc.version} rejected by validation · live harness stays v${opts.base.version}`, validationErrors.join('\n'))
+    return null
   }
+  if (status === 'active') await retireOthers(doc.version)
+  logActivity(
+    'harness',
+    'evolve',
+    `v${opts.base.version} → v${doc.version} (${status === 'trial' ? 'trial for one round' : 'rollback, active'}) · ${opts.rationale}`,
+    describeConfig(opts.config),
+  )
+  for (const c of opts.changes) logActivity('harness', 'evolve', `${c.path}: ${c.before || '∅'} → ${c.after || '∅'}`, c.why)
   return doc
+}
+
+async function retireOthers(activeVersion: number) {
+  const { harness } = await collections()
+  await harness.updateMany({ labId: LAB_ID, status: 'active', version: { $ne: activeVersion } }, { $set: { status: 'retired' } })
+  await harness.updateMany({ labId: LAB_ID, status: 'trial' }, { $set: { status: 'rejected' } })
 }
 
 export async function creditHarness(version: number, score: number | null) {
@@ -148,17 +119,59 @@ export async function creditHarness(version: number, score: number | null) {
   await harness.updateOne({ labId: LAB_ID, version }, { $set: { scoreAfter: score } })
 }
 
-export function rulesFor(config: HarnessConfig, role: AgentRole) {
-  const rules = config.rules.filter((r) => r.agent === role)
-  if (!rules.length) return ''
-  return `\nHarness rules (learned from earlier rounds — follow them):\n${rules.map((r) => `- ${r.text}`).join('\n')}`
+async function recordEvaluation(version: number, status: HarnessDoc['status'], evaluation: HarnessEvaluation) {
+  const { harness } = await collections()
+  await harness.updateOne({ labId: LAB_ID, version }, { $set: { status, evaluation } })
 }
 
-export function guardrailText(config: HarnessConfig) {
-  return `\nGuardrails (hard limits):\n- Never change: ${config.guardrails.protectedFacts.join('; ')}\n- Never do: ${config.guardrails.forbidden.join('; ')}`
-}
+/**
+ * Runs after every round with the harness that round used and the round's measured outcome.
+ * Trial → promote or reject. Active → roll back automatically if the score regressed.
+ * Returns the version that is active afterwards.
+ */
+export async function settleHarness(used: HarnessDoc, outcome: MetricSnapshot): Promise<HarnessDoc> {
+  const at = new Date()
+  if (used.status === 'trial') {
+    const decision = decidePromotion({ baseline: used.scoreAtAdoption, observed: outcome.score, n: outcome.n })
+    const evaluation = { ...decision, baseline: used.scoreAtAdoption, observed: outcome.score, n: outcome.n, at }
+    if (decision.verdict === 'promote') {
+      await recordEvaluation(used.version, 'active', evaluation)
+      await retireOthers(used.version)
+      logActivity('harness', 'evolve', `v${used.version} promoted to active · ${decision.reason}`)
+    } else {
+      await recordEvaluation(used.version, 'rejected', evaluation)
+      logActivity('harness', 'evolve', `v${used.version} trial rejected, reverting to v${used.parent} · ${decision.reason}`)
+    }
+    return getActiveHarness()
+  }
 
-export function allowTools<T extends { name: string }>(config: HarnessConfig, role: AgentRole, tools: T[]): T[] {
-  const allowed = new Set([...CORE_TOOLS[role], ...config.tools[role]])
-  return tools.filter((t) => allowed.has(t.name))
+  if (used.status === 'active' && used.parent !== null && detectRegression({ adoptedAt: used.scoreAtAdoption, latest: outcome.score })) {
+    const parent = await getHarnessVersion(used.parent)
+    if (parent) {
+      const reason = `Score fell to ${outcome.score} from ${used.scoreAtAdoption} at adoption (more than the regression limit).`
+      await recordEvaluation(used.version, 'retired', { verdict: 'rollback', reason, baseline: used.scoreAtAdoption, observed: outcome.score, n: outcome.n, at })
+      const { harness } = await collections()
+      const restored: HarnessDoc = {
+        ...withGuardrailsOf(configOf(parent), configOf(used)),
+        _id: newId(),
+        labId: LAB_ID,
+        version: await nextVersion(),
+        parent: used.version,
+        author: 'auto-rollback',
+        status: 'active',
+        rationale: `Automatic rollback to v${parent.version} settings. ${reason}`,
+        changes: [{ path: 'harness', before: `v${used.version}`, after: `v${parent.version}`, why: reason }],
+        validationErrors: [],
+        evaluation: null,
+        scoreAtAdoption: outcome.score,
+        scoreAfter: null,
+        createdAt: at,
+      }
+      await harness.insertOne(restored)
+      await retireOthers(restored.version)
+      logActivity('harness', 'evolve', `v${used.version} → v${restored.version} automatic rollback to v${parent.version} settings · ${reason}`)
+      return restored
+    }
+  }
+  return getActiveHarness()
 }

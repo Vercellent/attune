@@ -2,6 +2,7 @@ import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { interviewTurn } from '@/lib/agents/interviewer'
 import { advanceLab, claimLab, readyToAdvance } from '@/lib/lab'
+import { authorizeSession, unauthorizedSession } from '@/lib/session-auth'
 
 export const maxDuration = 800
 
@@ -9,6 +10,7 @@ const bodySchema = z.object({ text: z.string().trim().min(1).max(2000) })
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!(await authorizeSession(id))) return unauthorizedSession()
   const parsed = bodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
   try {

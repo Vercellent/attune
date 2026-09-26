@@ -14,7 +14,7 @@ async function statusReport() {
   const current = o.variants.filter((v) => v.generation === o.lab.generation)
   return [
     `Optimizing: ${o.lab.brief.optimize}. Task: ${o.lab.brief.task}. Phase: ${o.lab.phase}.`,
-    `Status: ${o.lab.status}${o.lab.step ? ` (${o.lab.step})` : ''}. Round ${o.lab.generation}. Autopilot ${o.lab.autopilot ? 'on' : 'off'}. Experiments done: ${o.sessions.done}/${o.lab.targetExperiments}. Baseline score ${o.mission?.baseline?.score ?? 'n/a'}, best ${o.mission?.best?.score ?? 'n/a'}. Harness v${o.harness.at(-1)?.version ?? 1}.`,
+    `Status: ${o.lab.status}${o.lab.step ? ` (${o.lab.step})` : ''}. Round ${o.lab.generation}. Autopilot ${o.lab.autopilot ? 'on' : 'off'}. Experiments done: ${o.sessions.done}/${o.lab.targetExperiments}. Baseline score ${o.mission?.baseline?.score ?? 'n/a'}, best ${o.mission?.best?.score ?? 'n/a'}. Harness v${[...o.harness].reverse().find((h) => h.status === 'active')?.version ?? 1} active${o.harness.some((h) => h.status === 'trial') ? `, v${o.harness.find((h) => h.status === 'trial')!.version} on trial` : ''}.`,
     'Current versions:',
     ...current.map((v) => `- ${v.key} ${v.name}: ${v.hypothesis}`),
     'Past rounds:',

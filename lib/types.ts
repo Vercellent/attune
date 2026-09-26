@@ -155,17 +155,58 @@ export type HarnessConfig = {
   }
 }
 
+/**
+ * active: the proven version new rounds fall back to.
+ * trial: a proposal running for exactly one round; promoted or rejected on that round's score.
+ * retired: superseded by a later active version. rejected: failed validation or its trial.
+ */
+export type HarnessStatus = 'active' | 'trial' | 'retired' | 'rejected'
+
+export type HarnessEvaluation = {
+  verdict: 'promote' | 'reject' | 'rollback'
+  reason: string
+  baseline: number | null
+  observed: number | null
+  n: number
+  at: Date
+}
+
 export type HarnessDoc = HarnessConfig & {
   _id: string
   labId: string
   version: number
   parent: number | null
-  author: 'seed' | 'architect' | 'rollback'
+  author: 'seed' | 'architect' | 'rollback' | 'auto-rollback'
+  status: HarnessStatus
   rationale: string
   changes: HarnessChange[]
+  validationErrors: string[]
+  evaluation: HarnessEvaluation | null
   scoreAtAdoption: number | null
   scoreAfter: number | null
   createdAt: Date
+}
+
+/** The interviewer's entire world, frozen when the participant joins. Studio changes never reach it. */
+export type InterviewSnapshot = {
+  harnessVersion: number
+  task: string
+  rules: string[]
+  policy: HarnessConfig['interview']
+  tools: string[]
+  traceDetail: HarnessConfig['context']['traceDetail']
+  topics: Topic[]
+}
+
+export type SessionLogDoc = {
+  _id: string
+  labId: string
+  sessionId: string
+  seq: number
+  at: Date
+  kind: ActivityKind
+  text: string
+  detail?: string
 }
 
 /* ---------------- Long-horizon mission ---------------- */
@@ -178,10 +219,13 @@ export type MetricSnapshot = {
   n: number
 }
 
+export type MetricTargets = { score: number; completion: number }
+
 export type MissionDoc = {
   _id: string
   objective: string
   target: number
+  targets?: MetricTargets
   experiments: number
   epoch: number
   baseline: MetricSnapshot | null
@@ -197,8 +241,8 @@ export type DigestDoc = {
   labId: string
   epoch: number
   throughGeneration: number
+  /** Embedded by Atlas Automated Embedding. */
   text: string
-  embedding: number[] | null
   createdAt: Date
 }
 
@@ -302,6 +346,9 @@ export type SessionDoc = {
   generation: number
   variantId: string
   variantKey: string
+  /** sha256 of the participant's HttpOnly cookie token; the raw token is never stored. */
+  tokenHash: string
+  snapshot: InterviewSnapshot | null
   status: 'briefing' | 'task' | 'interview' | 'done'
   camera: boolean
   events: TrackEvent[]
@@ -336,7 +383,8 @@ export type FindingDoc = {
   implicitEvidence: string
   explicitEvidence: string
   confidence: Confidence
-  embedding: number[] | null
+  /** Embedded by Atlas Automated Embedding. */
+  text: string
   createdAt: Date
 }
 

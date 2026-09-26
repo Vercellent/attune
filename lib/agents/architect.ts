@@ -4,16 +4,17 @@ import { z } from 'zod'
 import { tracedAgent } from './trace'
 import { codex } from './model'
 import { collections, newId } from '../db'
-import { embed } from '../memory'
 import { logActivity } from '../activity'
 import {
   CORE_TOOLS,
   LIMITS,
   OPTIONAL_TOOLS,
-  commitHarness,
+  PROMOTION_TOLERANCE,
   configOf,
   describeConfig,
   listHarness,
+  proposeHarness,
+  withGuardrailsOf,
 } from '../harness'
 import { AGENT_ROLES, LAB_ID, type AgentRole, type HarnessChange, type HarnessDoc, type MetricSnapshot } from '../types'
 
@@ -150,13 +151,15 @@ export async function evolveHarness(input: ArchitectInput): Promise<HarnessDoc |
     }),
     tool({
       name: 'rollback',
-      description: 'Revert the whole harness to an earlier version whose scoreAfter beat what followed it.',
+      description:
+        'Revert the whole harness to an earlier proven version (status active or retired) whose scoreAfter beat what followed it. Guardrails added since are kept. Takes effect immediately, without a trial.',
       inputSchema: z.object({ version: z.number().int(), why }),
       callback: ({ version, why: w }) => {
         const target = history.find((h) => h.version === version)
         if (!target || version >= input.current.version) return 'REJECTED: pick an earlier version.'
+        if (target.status !== 'active' && target.status !== 'retired') return `REJECTED: v${version} was ${target.status}, never proven.`
         rollbackTo = target
-        Object.assign(draft, configOf(target))
+        Object.assign(draft, withGuardrailsOf(configOf(target), configOf(input.current)))
         return record('harness', `v${input.current.version}`, `v${version}`, w)
       },
     }),
@@ -177,6 +180,7 @@ export async function evolveHarness(input: ArchitectInput): Promise<HarnessDoc |
     tools,
     systemPrompt: `You are the Harness Architect of a self-improving experimentation system. Other agents (strategist, builder, interviewer, synthesizer) run inside a harness you control: rules, context policy, guardrails, tool access, interview policy and experiment shape.
 After every round you read HARD metric signals and adapt the environment to this specific client, task and participant pool.
+Governance: you never edit the live harness. Your changes become a candidate version that must pass validation (bounded values, core tools kept, guardrails only added, no rule that overrides other instructions), then run as a one-round trial. It is promoted to active only if that round scores within ${PROMOTION_TOLERANCE} points of the current score or better; otherwise it is rejected automatically. Interviews already in progress keep the version they started with.
 Principles:
 - Change only what evidence supports; cite the metric in "why". 0-3 changes per round is typical; no change is valid.
 - Credit assignment: compare each harness version's scoreAtAdoption vs scoreAfter. Keep what helped, roll back what hurt.
@@ -188,7 +192,7 @@ Always call commit last.`,
   const historyText = history
     .map(
       (h) =>
-        `v${h.version} (${h.author}) adopted@${h.scoreAtAdoption ?? '–'} → after ${h.scoreAfter ?? '–'}: ${h.rationale}${h.changes.length ? ` [${h.changes.map((c) => c.path).join(', ')}]` : ''}`,
+        `v${h.version} [${h.status}] (${h.author}) adopted@${h.scoreAtAdoption ?? '–'} → after ${h.scoreAfter ?? '–'}: ${h.rationale}${h.changes.length ? ` [${h.changes.map((c) => c.path).join(', ')}]` : ''}${h.evaluation ? ` · ${h.evaluation.verdict}: ${h.evaluation.reason}` : ''}${h.validationErrors?.length ? ` · invalid: ${h.validationErrors.join('; ')}` : ''}`,
     )
     .join('\n')
   const trajectoryText = input.trajectory
@@ -207,7 +211,7 @@ Always call commit last.`,
     return null
   }
   const last = input.trajectory.at(-1)?.snapshot.score ?? null
-  return commitHarness({
+  return proposeHarness({
     base: input.current,
     config: draft,
     changes,
@@ -247,7 +251,6 @@ export async function compactEpoch(opts: { epoch: number; generation: number; ro
     epoch: opts.epoch,
     throughGeneration: opts.generation,
     text,
-    embedding: (await embed([text], 'document'))?.[0] ?? null,
     createdAt: new Date(),
   })
   logActivity(

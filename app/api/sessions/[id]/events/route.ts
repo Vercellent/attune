@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { recordSession } from '@/lib/lab'
+import { authorizeSession, unauthorizedSession } from '@/lib/session-auth'
 
 const bodySchema = z.object({
   events: z
@@ -22,6 +23,7 @@ const bodySchema = z.object({
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
+  if (!(await authorizeSession(id))) return unauthorizedSession()
   const parsed = bodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid events' }, { status: 400 })
   try {

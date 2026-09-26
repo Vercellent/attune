@@ -12,6 +12,7 @@ import type {
   LabDoc,
   OwnerMessageDoc,
   SessionDoc,
+  SessionLogDoc,
   VariantDoc,
 } from './types'
 
@@ -48,11 +49,12 @@ export async function collections() {
     generations: db.collection<GenerationDoc>('generations'),
     variants: db.collection<VariantDoc>('variants'),
     sessions: db.collection<SessionDoc>('sessions'),
-    findings: db.collection<FindingDoc>('findings'),
+    sessionLogs: db.collection<SessionLogDoc>('session_logs'),
+    findings: db.collection<FindingDoc>('studio_findings'),
     ownerMessages: db.collection<OwnerMessageDoc>('owner_messages'),
     activity: db.collection<ActivityDoc>('activity'),
     captures: db.collection<CaptureDoc>('captures'),
-    harness: db.collection<HarnessDoc>('harness'),
+    harness: db.collection<HarnessDoc>('harness_versions'),
     missions: db.collection<MissionDoc>('missions'),
     digests: db.collection<DigestDoc>('digests'),
     recordings: db.collection<RecordingChunkDoc>('recordings'),
