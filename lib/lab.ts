@@ -318,7 +318,18 @@ export async function createSession(resume: { sessionId: string; token: string }
   if (!pool.length) return null
   const counts = await c.sessions
     .aggregate<{ _id: string; n: number }>([
-      { $match: { labId: LAB_ID, generation: lab.generation, status: { $ne: 'briefing' } } },
+      // Abandoned sessions (tab closed mid-task) never complete, so only count finished sessions and
+      // recent in-flight ones; otherwise a variant with dropouts looks full while it still lacks data.
+      {
+        $match: {
+          labId: LAB_ID,
+          generation: lab.generation,
+          $or: [
+            { status: 'done' },
+            { status: { $in: ['task', 'interview'] }, createdAt: { $gte: new Date(Date.now() - ABANDONED_AFTER_MS) } },
+          ],
+        },
+      },
       { $group: { _id: '$variantId', n: { $sum: 1 } } },
     ])
     .toArray()
@@ -356,6 +367,8 @@ export async function createSession(resume: { sessionId: string; token: string }
   )
   return { sessionId: session._id, variantId: variant._id, task: lab.brief.task, token }
 }
+
+const ABANDONED_AFTER_MS = 20 * 60_000
 
 export async function startTask(sessionId: string, camera: boolean) {
   const { sessions } = await collections()

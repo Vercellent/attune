@@ -40,10 +40,21 @@ async function consume(stream: ReadableStream<Uint8Array>, meter: UsageMeter) {
   if (buffer) absorb(meter, buffer)
 }
 
-/** Strands' chat adapter requests usage but drops it, so read it straight off OpenRouter's response. */
-function meteredFetch(meter: UsageMeter): typeof fetch {
+const REQUEST_DEADLINE_MS: Record<keyof typeof MODELS, number> = {
+  builder: 5 * 60_000,
+  conversational: 90_000,
+}
+
+/**
+ * Strands' chat adapter requests usage but drops it, so read it straight off OpenRouter's response.
+ * The deadline signal also covers the streamed body: a provider stream that stalls mid-response
+ * would otherwise hang the agent (and the participant's interview turn) indefinitely.
+ */
+function meteredFetch(meter: UsageMeter, deadlineMs: number): typeof fetch {
   return async (input, init) => {
-    const res = await fetch(input, init)
+    const deadline = AbortSignal.timeout(deadlineMs)
+    const signal = init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline
+    const res = await fetch(input, { ...init, signal })
     if (!res.body || !res.ok) return res
     const [forAgent, forMeter] = res.body.tee()
     const task = consume(forMeter, meter).catch(() => undefined)
@@ -63,7 +74,8 @@ export function codex(kind: keyof typeof MODELS, maxTokens?: number) {
     clientConfig: {
       baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
       defaultHeaders: { 'X-Title': 'Autonomous Experimentation Lab' },
-      fetch: meteredFetch(meter),
+      fetch: meteredFetch(meter, REQUEST_DEADLINE_MS[kind]),
+      maxRetries: 1,
     },
   })
   meters.set(model, meter)
