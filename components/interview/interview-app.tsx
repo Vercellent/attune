@@ -1,192 +1,234 @@
 'use client'
 
+import useSWRImmutable from 'swr/immutable'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ChatPanel, type PanelMessage } from '@/components/chat-panel'
-import type { TrackEvent } from '@/lib/types'
+import type { GazeDwell, Replay, TrackEvent } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { InterviewChat, type Msg } from './interview-chat'
 
-type Phase = 'intro' | 'starting' | 'task' | 'interview' | 'done' | 'unavailable'
-type Session = { sessionId: string; variantId: string; task: string; greeting: string }
+type Session = { sessionId: string; variantId: string; task: string }
+type Phase = 'brief' | 'task' | 'thinking' | 'interview' | 'done'
+type TurnResult = { reply: string | null; replay: Replay | null; status: string; error?: string }
 
-const uid = () => Math.random().toString(36).slice(2)
+const GAZE_INTERVAL = 200
+
+async function createSession(): Promise<Session> {
+  const resume = sessionStorage.getItem('lab-session') ?? undefined
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ resume }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Could not start')
+  sessionStorage.setItem('lab-session', data.sessionId)
+  return data
+}
+
+type WebGazer = {
+  setGazeListener: (cb: (d: { x: number; y: number } | null) => void) => WebGazer
+  showVideoPreview: (v: boolean) => WebGazer
+  showPredictionPoints: (v: boolean) => WebGazer
+  begin: () => Promise<unknown>
+  end: () => void
+  params: { faceMeshSolutionPath: string }
+}
+
+// WebGazer's MediaPipe deps can't be bundled by Turbopack, so load the prebuilt UMD build from /public.
+function loadWebGazer(): Promise<WebGazer> {
+  const w = window as Window & { webgazer?: WebGazer }
+  if (w.webgazer) return Promise.resolve(w.webgazer)
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = '/vendor/webgazer.js'
+    s.async = true
+    s.onload = () => {
+      if (!w.webgazer) return reject(new Error('WebGazer unavailable'))
+      w.webgazer.params.faceMeshSolutionPath = '/vendor/mediapipe/face_mesh'
+      resolve(w.webgazer)
+    }
+    s.onerror = () => reject(new Error('WebGazer failed to load'))
+    document.head.appendChild(s)
+  })
+}
 
 export function InterviewApp() {
-  const [phase, setPhase] = useState<Phase>('intro')
-  const [session, setSession] = useState<Session | null>(null)
-  const [messages, setMessages] = useState<PanelMessage[]>([])
-  const [pending, setPending] = useState(false)
+  const { data: session, error } = useSWRImmutable('interview-session', createSession, { shouldRetryOnError: false })
   const frameRef = useRef<HTMLIFrameElement>(null)
-  const buffer = useRef<TrackEvent[]>([])
-  const friction = useRef({ asked: false, dead: 0 })
-  const phaseRef = useRef<Phase>(phase)
-  phaseRef.current = phase
-
-  const flush = useCallback(async () => {
-    if (!session || buffer.current.length === 0) return
-    const events = buffer.current.splice(0, buffer.current.length)
-    await fetch(`/api/sessions/${session.sessionId}/events`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ events }),
-      keepalive: true,
-    }).catch(() => buffer.current.unshift(...events))
-  }, [session])
-
-  const talk = useCallback(
-    async (input: { text?: string; trigger?: 'friction' | 'task_done' }) => {
-      if (!session) return
-      if (input.text) setMessages((m) => [...m, { id: uid(), role: 'user', text: input.text! }])
-      if (input.trigger === 'task_done') setPhase('interview')
-      setPending(true)
-      await flush()
-      try {
-        const res = await fetch(`/api/sessions/${session.sessionId}/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(input),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error)
-        if (data.reply) setMessages((m) => [...m, { id: uid(), role: 'assistant', text: data.reply }])
-        if (data.status === 'done') setPhase('done')
-      } catch {
-        setMessages((m) => [
-          ...m,
-          { id: uid(), role: 'assistant', text: 'Sorry, I lost connection for a second. Could you say that again?' },
-        ])
-      } finally {
-        setPending(false)
-      }
-    },
-    [session, flush],
-  )
+  const [phase, setPhase] = useState<Phase>('brief')
+  const [messages, setMessages] = useState<Msg[]>([])
+  const [camera, setCamera] = useState(true)
+  const [elapsed, setElapsed] = useState(0)
+  const startRef = useRef(0)
+  const buffers = useRef<{ events: TrackEvent[]; gaze: Map<string, GazeDwell>; rrweb: unknown[] }>({ events: [], gaze: new Map(), rrweb: [] })
+  const gazer = useRef<WebGazer | null>(null)
+  const lastGaze = useRef(0)
 
   useEffect(() => {
+    if (session) setMessages([{ role: 'assistant', text: `Thanks for helping! Your task:\n\n${session.task}\n\nRead it, then press Start. Press Stop when you're finished or stuck.` }])
+  }, [session])
+
+  const flush = useCallback(async () => {
     if (!session) return
-    function onMessage(e: MessageEvent) {
+    const b = buffers.current
+    if (!b.events.length && !b.gaze.size && !b.rrweb.length) return
+    const body = { events: b.events, gaze: [...b.gaze.values()], rrweb: b.rrweb, seq: Date.now() }
+    buffers.current = { events: [], gaze: new Map(), rrweb: [] }
+    await fetch(`/api/sessions/${session.sessionId}/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(() => undefined)
+  }, [session])
+
+  useEffect(() => {
+  if (phase === 'brief' || phase === 'done') return
+  const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+  window.addEventListener('beforeunload', warn)
+  return () => window.removeEventListener('beforeunload', warn)
+  }, [phase])
+
+  useEffect(() => {
+  const onMessage = (e: MessageEvent) => {
       if (e.source !== frameRef.current?.contentWindow || !e.data?.__lab) return
-      const { type, page, label, t } = e.data as TrackEvent & { __lab: 1 }
-      buffer.current.push({ type, page: String(page).slice(0, 80), label: String(label ?? '').slice(0, 80), t })
-      if (phaseRef.current !== 'task') return
-      if (type === 'complete') {
-        void talk({ trigger: 'task_done' })
-        return
-      }
-      if (type === 'dead_click') friction.current.dead++
-      if (!friction.current.asked && (type === 'rage_click' || friction.current.dead >= 3)) {
-        friction.current.asked = true
-        void talk({ trigger: 'friction' })
+      const d = e.data as { kind: string; type?: TrackEvent['type']; page?: string; label?: string; events?: unknown[] }
+      const now = Date.now()
+      if (d.kind === 'track' && d.type) {
+        buffers.current.events.push({ t: now - startRef.current, ts: now, type: d.type, page: d.page ?? '', label: d.label?.slice(0, 80) })
+      } else if (d.kind === 'rrweb' && d.events) {
+        buffers.current.rrweb.push(...d.events)
+      } else if (d.kind === 'gaze') {
+        const key = `${d.page}|${d.label}`
+        const g = buffers.current.gaze.get(key) ?? { page: (d.page ?? '').slice(0, 80), label: (d.label ?? '').slice(0, 80), ms: 0 }
+        g.ms += GAZE_INTERVAL
+        buffers.current.gaze.set(key, g)
       }
     }
     window.addEventListener('message', onMessage)
-    const timer = setInterval(flush, 3000)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  useEffect(() => {
+    if (phase !== 'task') return
+    const tick = setInterval(() => setElapsed(Date.now() - startRef.current), 250)
+    const pump = setInterval(flush, 2000)
     return () => {
-      window.removeEventListener('message', onMessage)
-      clearInterval(timer)
+      clearInterval(tick)
+      clearInterval(pump)
     }
-  }, [session, flush, talk])
+  }, [phase, flush])
+
+  useEffect(() => () => gazer.current?.end(), [])
+
+  async function startGaze() {
+    try {
+      const wg = await loadWebGazer()
+      gazer.current = wg
+      await wg
+        .setGazeListener((p) => {
+          const frame = frameRef.current
+          if (!p || !frame) return
+          const now = Date.now()
+          if (now - lastGaze.current < GAZE_INTERVAL) return
+          lastGaze.current = now
+          const r = frame.getBoundingClientRect()
+          const x = p.x - r.left
+          const y = p.y - r.top
+          if (x < 0 || y < 0 || x > r.width || y > r.height) return
+          frame.contentWindow?.postMessage({ __labcmd: 'gaze', x, y }, '*')
+        })
+        .showVideoPreview(false)
+        .showPredictionPoints(false)
+        .begin()
+      return true
+    } catch {
+      gazer.current = null
+      return false
+    }
+  }
 
   async function start() {
-    setPhase('starting')
-    const res = await fetch('/api/sessions', { method: 'POST' })
-    if (!res.ok) {
-      setPhase('unavailable')
-      return
-    }
-    const data: Session = await res.json()
-    setSession(data)
-    setMessages([{ id: uid(), role: 'assistant', text: data.greeting }])
+    if (!session) return
+    const gazeOn = camera ? await startGaze() : false
+    await fetch(`/api/sessions/${session.sessionId}/task`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'start', camera: gazeOn }) })
+    startRef.current = Date.now()
+    setElapsed(0)
+    frameRef.current?.contentWindow?.postMessage({ __labcmd: 'start' }, '*')
     setPhase('task')
   }
 
-  if (phase === 'intro' || phase === 'starting' || phase === 'unavailable') {
+  async function stop() {
+    if (!session) return
+    frameRef.current?.contentWindow?.postMessage({ __labcmd: 'stop' }, '*')
+    gazer.current?.end()
+    gazer.current = null
+    setPhase('thinking')
+    await new Promise((r) => setTimeout(r, 900))
+    await flush()
+    const res = await fetch(`/api/sessions/${session.sessionId}/task`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'stop' }) })
+    const turn: TurnResult = await res.json()
+    applyTurn(turn)
+  }
+
+  function applyTurn(turn: TurnResult) {
+    if (turn.reply) setMessages((m) => [...m, { role: 'assistant', text: turn.reply!, replay: turn.replay ?? undefined }])
+    else if (turn.error) setMessages((m) => [...m, { role: 'assistant', text: turn.error! }])
+    setPhase(turn.status === 'done' ? 'done' : 'interview')
+  }
+
+  async function send(text: string) {
+    if (!session) return
+    setMessages((m) => [...m, { role: 'user', text }])
+    setPhase('thinking')
+    const res = await fetch(`/api/sessions/${session.sessionId}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+    applyTurn(await res.json())
+  }
+
+  if (error) {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6">
-        <div className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-balance text-2xl font-semibold tracking-tight">Help us improve a website</h1>
-            <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
-              {phase === 'unavailable'
-                ? 'There is no study running right now. Please check back soon.'
-                : 'Try one small task on a website, then answer a few quick questions. It takes about 3 minutes.'}
-            </p>
-          </div>
-          {phase !== 'unavailable' && (
-            <Button size="lg" className="w-full" onClick={start} disabled={phase === 'starting'}>
-              {phase === 'starting' && <Loader2 className="animate-spin" />}
-              Start
-            </Button>
-          )}
-        </div>
+        <p className="max-w-sm text-center text-muted-foreground">{error.message}</p>
       </main>
     )
   }
 
+  const blurred = phase !== 'task'
+
   return (
-    <div className="flex h-dvh flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-        <ol className="flex items-center gap-3 text-sm" aria-label="Progress">
-          <Step n={1} label="Try the site" active={phase === 'task'} done={phase !== 'task'} />
-          <span className="h-px w-6 bg-border" aria-hidden />
-          <Step n={2} label="Quick chat" active={phase === 'interview'} done={phase === 'done'} />
-        </ol>
-        {phase === 'task' && (
-          <Button size="sm" onClick={() => talk({ trigger: 'task_done' })} disabled={pending}>
-            {"I'm done"}
-          </Button>
+    <main className="relative flex h-dvh flex-col bg-background md:flex-row">
+      <section aria-label="Website" className="relative min-h-0 flex-1 border-b md:border-b-0 md:border-r">
+        {session && (
+          <iframe
+            ref={frameRef}
+            src={`/api/variants/${session.variantId}`}
+            title="Website to test"
+            sandbox="allow-scripts allow-forms"
+            className={cn('size-full bg-white transition-[filter] duration-500', blurred && 'pointer-events-none blur-xl')}
+            tabIndex={blurred ? -1 : 0}
+            aria-hidden={blurred}
+          />
         )}
-      </header>
+        {blurred && phase !== 'done' && <div className="absolute inset-0" aria-hidden="true" />}
+      </section>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <section className="relative min-h-0 flex-1 bg-muted" aria-label="Website">
-          {session && (
-            <iframe
-              ref={frameRef}
-              src={`/api/variants/${session.variantId}`}
-              title="Website being tested"
-              sandbox="allow-scripts allow-forms"
-              className={cn('size-full border-0 bg-card', phase !== 'task' && 'pointer-events-none opacity-60')}
-            />
-          )}
-        </section>
+      <InterviewChat
+        className="h-[45dvh] w-full md:h-auto md:w-[400px]"
+        sessionId={session?.sessionId ?? ''}
+        messages={messages}
+        phase={phase}
+        elapsed={elapsed}
+        camera={camera}
+        onCameraChange={setCamera}
+        onStart={start}
+        onStop={stop}
+        onSend={send}
+        ready={!!session}
+      />
 
-        <aside className="flex h-[42dvh] shrink-0 flex-col border-t border-border bg-background md:h-auto md:w-96 md:border-l md:border-t-0">
-          {phase === 'done' ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-              <span className="flex size-10 items-center justify-center rounded-full bg-accent text-accent-foreground">
-                <Check className="size-5" />
-              </span>
-              <h2 className="text-lg font-semibold">Thank you!</h2>
-              <p className="text-sm text-muted-foreground">Your feedback helps make this site better. You can close this tab.</p>
-            </div>
-          ) : (
-            <ChatPanel
-              messages={messages}
-              pending={pending}
-              onSend={(text) => talk({ text })}
-              placeholder={phase === 'task' ? 'Think out loud…' : 'Your answer…'}
-            />
-          )}
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-function Step({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
-  return (
-    <li className={cn('flex items-center gap-2', !active && !done && 'text-muted-foreground')} aria-current={active ? 'step' : undefined}>
-      <span
-        className={cn(
-          'flex size-5 items-center justify-center rounded-full text-xs font-medium',
-          active ? 'bg-primary text-primary-foreground' : done ? 'bg-accent text-accent-foreground' : 'bg-muted',
-        )}
-      >
-        {done && !active ? <Check className="size-3" /> : n}
-      </span>
-      <span className="hidden sm:inline">{label}</span>
-    </li>
+      {phase === 'done' && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-xl">
+          <div className="flex max-w-sm flex-col gap-3 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight">Thank you!</h1>
+            <p className="leading-relaxed text-muted-foreground">Your feedback has been recorded. You can close this browser tab now.</p>
+          </div>
+        </div>
+      )}
+    </main>
   )
 }

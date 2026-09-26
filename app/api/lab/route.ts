@@ -1,59 +1,62 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { advanceLab, bootstrapLab, claimLab, createLab, getOverview, setAutopilot } from '@/lib/lab'
+import { advanceLab, bootstrapLab, claimLab, getOverview, setAutopilot, startCapture } from '@/lib/lab'
 import { resetDbIfUnreachable } from '@/lib/db'
+import { OBJECTIVES } from '@/lib/types'
 
 export const maxDuration = 800
 
-export async function GET() {
+async function guard<T>(fn: () => Promise<T>) {
   try {
-    return NextResponse.json(await getOverview())
+    return await fn()
   } catch (error) {
-    console.error('[lab] overview failed:', error)
-  await resetDbIfUnreachable(error)
-    return NextResponse.json(
-      { error: 'Cannot reach MongoDB Atlas. In Atlas → Network Access, allow 0.0.0.0/0, then reload.' },
-      { status: 503 },
-    )
+    await resetDbIfUnreachable(error)
+    const message = error instanceof Error ? error.message : 'Unexpected error'
+    console.error('[lab] request failed', error)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 
-const bodySchema = z.discriminatedUnion('action', [
+export async function GET() {
+  return guard(async () => NextResponse.json({ overview: await getOverview() }))
+}
+
+const actionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('start'),
-    brief: z.object({
-      targetUrl: z.string().trim().max(500),
-      goal: z.string().trim().min(3).max(300),
-      task: z.string().trim().min(3).max(400),
-    }),
+    objective: z.enum(OBJECTIVES.map((o) => o.value) as [string, ...string[]]),
+    targetUrl: z.string().trim().min(1).max(500),
+    optimize: z.string().trim().min(8).max(1000),
+    target: z.number().int().min(4).max(200).optional(),
   }),
+  z.object({ action: z.literal('launch') }),
   z.object({ action: z.literal('advance') }),
   z.object({ action: z.literal('autopilot'), enabled: z.boolean() }),
 ])
 
 export async function POST(req: Request) {
-  const parsed = bodySchema.safeParse(await req.json().catch(() => null))
+  const parsed = actionSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   const body = parsed.data
-
-  try {
+  return guard(async () => {
     if (body.action === 'start') {
-      const url = body.brief.targetUrl
-      if (url && !url.startsWith('/shop') && !/^https?:\/\//.test(url)) {
-        return NextResponse.json({ error: 'Use a full URL starting with https://' }, { status: 400 })
-      }
-      await createLab({ ...body.brief, targetUrl: url || '/shop' })
-      after(bootstrapLab)
-    } else if (body.action === 'advance') {
-      if (!(await claimLab('Closing the round'))) {
-        return NextResponse.json({ error: 'The lab is busy right now' }, { status: 409 })
-      }
-      after(advanceLab)
-    } else {
-      await setAutopilot(body.enabled)
+      await startCapture(
+        { objective: body.objective as never, targetUrl: body.targetUrl, optimize: body.optimize },
+        body.target,
+      )
+      return NextResponse.json({ ok: true })
     }
+    if (body.action === 'launch') {
+      if (!(await claimLab('Studying the captured journey'))) return NextResponse.json({ error: 'The lab is busy' }, { status: 409 })
+      after(bootstrapLab)
+      return NextResponse.json({ ok: true })
+    }
+    if (body.action === 'advance') {
+      if (!(await claimLab('Closing the round'))) return NextResponse.json({ error: 'The lab is busy' }, { status: 409 })
+      after(advanceLab)
+      return NextResponse.json({ ok: true })
+    }
+    await setAutopilot(body.enabled)
     return NextResponse.json({ ok: true })
-  } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 })
-  }
+  })
 }

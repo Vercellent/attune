@@ -5,19 +5,14 @@ import { advanceLab, claimLab, readyToAdvance } from '@/lib/lab'
 
 export const maxDuration = 800
 
-const bodySchema = z.object({
-  text: z.string().trim().min(1).max(2000).optional(),
-  trigger: z.enum(['friction', 'task_done']).optional(),
-})
+const bodySchema = z.object({ text: z.string().trim().min(1).max(2000) })
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const parsed = bodySchema.safeParse(await req.json().catch(() => null))
-  if (!parsed.success || (!parsed.data.text && !parsed.data.trigger)) {
-    return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
-  }
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid message' }, { status: 400 })
   try {
-    const result = await interviewTurn(id, parsed.data)
+    const result = await interviewTurn(id, { text: parsed.data.text })
     if (result.status === 'done') {
       after(async () => {
         if ((await readyToAdvance()) && (await claimLab('Closing the round'))) await advanceLab()

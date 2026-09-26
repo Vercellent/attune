@@ -94,6 +94,7 @@ export type LabDoc = {
   targetExperiments: number
   playbook: Playbook | null
   championVariantId: string | null
+  autopilot: boolean
   createdAt: Date
   updatedAt: Date
 }

@@ -10,6 +10,7 @@ import {
 } from '@strands-agents/sdk'
 import { logActivity } from '../activity'
 import { recordUsage } from '../mission'
+import { usageMeter } from './model'
 
 type AgentConfig = NonNullable<ConstructorParameters<typeof Agent>[0]>
 type LooseBlock = { type: string; text?: string; json?: unknown; name?: string }
@@ -39,7 +40,13 @@ function resultText(blocks: readonly unknown[]) {
 export function tracedAgent(label: string, config: AgentConfig) {
   const agent = new Agent({ printer: false, ...config })
 
-  agent.addHook(BeforeInvocationEvent, () => logActivity(label, 'start', 'invocation started'))
+  const meter = usageMeter(config.model)
+  let baseline = { inputTokens: 0, outputTokens: 0 }
+
+  agent.addHook(BeforeInvocationEvent, () => {
+    if (meter) baseline = { inputTokens: meter.inputTokens, outputTokens: meter.outputTokens }
+    logActivity(label, 'start', 'invocation started')
+  })
 
   agent.addHook(MessageAddedEvent, (event) => {
     if (event.message.role !== 'user') return
@@ -67,8 +74,17 @@ export function tracedAgent(label: string, config: AgentConfig) {
     }
   })
 
-  agent.addHook(AgentResultEvent, (event) => {
-    const usage = event.result.metrics?.accumulatedUsage
+  agent.addHook(AgentResultEvent, async (event) => {
+    let usage = event.result.metrics?.accumulatedUsage
+    if (meter && !usage?.inputTokens) {
+      await Promise.all(meter.pending)
+      usage = {
+        ...usage,
+        inputTokens: meter.inputTokens - baseline.inputTokens,
+        outputTokens: meter.outputTokens - baseline.outputTokens,
+        totalTokens: meter.inputTokens - baseline.inputTokens + meter.outputTokens - baseline.outputTokens,
+      } as typeof usage
+    }
     recordUsage(usage)
     const tokens = usage ? ` · ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out tokens` : ''
     logActivity(label, 'done', `finished (${event.result.stopReason})${tokens}`)

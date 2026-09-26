@@ -10,16 +10,13 @@ import { memoryTool } from './tools'
 
 async function statusReport() {
   const o = await getOverview()
-  if (!o.lab) return 'No experiment configured yet.'
-  const current = o.variants.filter((v) => v.generation === o.lab!.generation)
+  if (!o) return 'No experiment configured yet.'
+  const current = o.variants.filter((v) => v.generation === o.lab.generation)
   return [
-    `Goal: ${o.lab.brief.goal}. Task: ${o.lab.brief.task}.`,
-    `Status: ${o.lab.status}${o.lab.step ? ` (${o.lab.step})` : ''}. Round ${o.lab.generation}. Autopilot ${o.lab.autopilot ? 'on' : 'off'} (advances after ${o.lab.minSessions} interviews per version). Total interviews: ${o.sessions}.`,
+    `Optimizing: ${o.lab.brief.optimize}. Task: ${o.lab.brief.task}. Phase: ${o.lab.phase}.`,
+    `Status: ${o.lab.status}${o.lab.step ? ` (${o.lab.step})` : ''}. Round ${o.lab.generation}. Autopilot ${o.lab.autopilot ? 'on' : 'off'}. Experiments done: ${o.sessions.done}/${o.lab.targetExperiments}. Baseline score ${o.mission?.baseline?.score ?? 'n/a'}, best ${o.mission?.best?.score ?? 'n/a'}. Harness v${o.harness.at(-1)?.version ?? 1}.`,
     'Current versions:',
-    ...current.map(
-      (v) =>
-        `- ${v.key} ${v.name}: ${v.hypothesis} | interviews ${v.sessionCount}, score ${v.avgScore ?? 'n/a'}, completion ${v.completionRate === null ? 'n/a' : Math.round(v.completionRate * 100) + '%'}`,
-    ),
+    ...current.map((v) => `- ${v.key} ${v.name}: ${v.hypothesis}`),
     'Past rounds:',
     ...o.generations
       .filter((g) => g.status === 'closed')

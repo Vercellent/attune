@@ -3,79 +3,96 @@
 import useSWR from 'swr'
 import { useState } from 'react'
 import type { Overview } from '@/lib/lab'
-import { OwnerChat } from './owner-chat'
-import { SetupForm } from './setup-form'
-import { StatusBar } from './status-bar'
-import { Versions } from './versions'
-import { Learnings } from './learnings'
+import { cn } from '@/lib/utils'
+import { Intake } from './intake'
+import { CaptureRun } from './capture-run'
+import { Dashboard } from './dashboard'
 import { Shell } from './shell'
 
-export type OverviewData = Overview
+type LabResponse = { overview: Overview | null; error?: string }
 
-const fetcher = async (url: string) => {
-  const res = await fetch(url)
+const fetcher = async (url: string): Promise<LabResponse> => {
+  const res = await fetch(url, { cache: 'no-store' })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? 'Request failed')
-  return data
-}
-
-export async function labAction(body: object) {
-  const res = await fetch('/api/lab', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? 'Request failed')
+  if (!res.ok) throw new Error(data.error ?? 'Could not reach the lab')
   return data
 }
 
 export function StudioApp() {
-  const { data, error, mutate, isLoading } = useSWR<OverviewData>('/api/lab', fetcher, { refreshInterval: 3000 })
-  const [editing, setEditing] = useState(false)
-
-  if (error && !data) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center p-6">
-        <p role="alert" className="max-w-sm text-center text-sm leading-relaxed text-destructive">
-          {error.message}
-        </p>
-      </div>
-    )
-  }
-
-  if (isLoading || !data) {
-    return <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">Loading…</div>
-  }
-
-  if (!data.lab || editing) {
-    return (
-      <SetupForm
-        initial={data.lab?.brief}
-        onCancel={data.lab ? () => setEditing(false) : undefined}
-        onStarted={async () => {
-          setEditing(false)
-          await mutate()
-        }}
-      />
-    )
-  }
+  const { data, error, isLoading, mutate } = useSWR('/api/lab', fetcher, { refreshInterval: 3000 })
+  const [shellOpen, setShellOpen] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const overview = data?.overview ?? null
+  const phase = restarting ? null : (overview?.lab.phase ?? null)
 
   return (
-    <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
-      <main className="flex h-dvh shrink-0 flex-col lg:h-auto lg:min-h-0 lg:flex-1">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <StatusBar data={data} onChange={() => mutate()} onNew={() => setEditing(true)} />
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-5 py-8 md:px-8">
-            <Versions data={data} />
-            <Learnings data={data} />
-          </div>
+    <div className="flex min-h-dvh flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between border-b px-6 py-3">
+        <div className="flex items-center gap-2">
+          <span className="size-2 rounded-full bg-foreground" aria-hidden="true" />
+          <span className="text-sm font-medium tracking-tight">Experimentation Lab</span>
         </div>
-        <Shell running={data.lab.status === 'working'} />
+        {overview && phase && (
+          <button
+            type="button"
+            onClick={() => setRestarting(true)}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            New optimization
+          </button>
+        )}
+      </header>
+
+      <main className={cn('flex-1', shellOpen ? 'pb-[46vh]' : 'pb-12')}>
+        {error && !data ? (
+          <p className="mx-auto max-w-md px-6 py-24 text-center text-sm text-muted-foreground" role="alert">
+            {error.message}
+          </p>
+        ) : isLoading ? (
+          <p className="py-24 text-center text-sm text-muted-foreground">Loading…</p>
+        ) : !phase ? (
+          <Intake
+            onStarted={async () => {
+              await mutate()
+              setRestarting(false)
+            }}
+          />
+        ) : phase === 'capturing' || phase === 'ready' ? (
+          <CaptureRun overview={overview!} onChange={() => mutate()} />
+        ) : (
+          <Dashboard overview={overview!} onChange={() => mutate()} />
+        )}
       </main>
-      <aside className="flex h-[50dvh] shrink-0 flex-col border-t border-border bg-background lg:h-auto lg:w-[400px] lg:border-l lg:border-t-0">
-        <OwnerChat />
-      </aside>
+
+      <section
+        aria-label="Agent shell"
+        className={cn(
+          'fixed inset-x-0 bottom-0 z-20 flex flex-col border-t border-neutral-800 bg-neutral-950 text-neutral-100 transition-[height]',
+          shellOpen ? 'h-[46vh]' : 'h-10',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setShellOpen((o) => !o)}
+          aria-expanded={shellOpen}
+          className="flex h-10 shrink-0 items-center justify-between px-4 font-mono text-xs text-neutral-400 hover:text-neutral-100"
+        >
+          <span className="flex items-center gap-2">
+            <span
+              className={cn('size-1.5 rounded-full', overview?.lab.status === 'working' ? 'animate-pulse bg-emerald-400' : 'bg-neutral-600')}
+              aria-hidden="true"
+            />
+            strands://harness
+            {overview?.lab.step ? <span className="text-neutral-500">· {overview.lab.step}</span> : null}
+          </span>
+          <span>{shellOpen ? 'hide' : 'show shell'}</span>
+        </button>
+        {shellOpen && (
+          <div className="min-h-0 flex-1">
+            <Shell running={overview?.lab.status === 'working'} />
+          </div>
+        )}
+      </section>
     </div>
   )
 }

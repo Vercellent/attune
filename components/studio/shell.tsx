@@ -17,6 +17,11 @@ const GLYPH: Record<ActivityKind, string> = {
   result: '←',
   error: '!',
   done: '■',
+  evolve: 'Δ',
+  mission: '◆',
+  memory: '◇',
+  context: '▤',
+  metric: '∿',
 }
 
 const TONE: Record<ActivityKind, string> = {
@@ -29,6 +34,11 @@ const TONE: Record<ActivityKind, string> = {
   result: 'text-emerald-400/70',
   error: 'text-rose-400',
   done: 'text-neutral-500',
+  evolve: 'text-fuchsia-300 font-semibold',
+  mission: 'text-amber-300',
+  memory: 'text-sky-400',
+  context: 'text-cyan-300/80',
+  metric: 'text-lime-300',
 }
 
 const time = (iso: string) =>

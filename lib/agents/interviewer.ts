@@ -78,6 +78,7 @@ export async function interviewTurn(sessionId: string, input: { text?: string; s
       callback: ({ momentId }) => {
         const m = session.moments.find((x) => x.id === momentId)
         if (!m) return 'No such moment.'
+        if (session.messages.some((x) => x.replay?.momentId === momentId)) return 'Already shown and discussed. Move on to a different topic.'
         if (session.messages.filter((x) => x.replay).length >= harness.interview.replayMoments) return 'Replay budget used up.'
         replay = { momentId, startTs: m.ts - 3000, endTs: m.ts + 3000, label: m.description }
         return `Clip attached: ${m.description}. Now ask about it.`
@@ -120,7 +121,12 @@ export async function interviewTurn(sessionId: string, input: { text?: string; s
     ? START_NOTE
     : `${input.text?.trim() ?? ''}${overLimit ? '\n\n[System: question limit reached — thank them and call end_interview now.]' : ''}`
   const result = await agent.invoke(prompt)
-  const reply = result.toString().trim() || 'Thanks, that’s really helpful.'
+  let reply = result.toString().trim() || 'Thanks, that’s really helpful.'
+  if (overLimit && !ending.done) {
+    Object.assign(ending, { done: true, summary: ending.summary ?? 'Interview closed at the question limit.' })
+    replay = null
+    reply = 'That’s everything — thank you so much for your time and honesty.'
+  }
 
   const now = new Date()
   const newMessages: ChatMessage[] = [
