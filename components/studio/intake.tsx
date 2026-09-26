@@ -202,7 +202,7 @@ function DetailsStep({
       )}
 
       <Button type="submit" size="lg" disabled={pending} className="h-12 text-base">
-        {pending ? 'Starting…' : 'Walk through my flow'}
+        {pending ? 'Starting…' : 'Ready to optimize'}
       </Button>
     </form>
   )
