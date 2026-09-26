@@ -164,7 +164,7 @@ function DetailsStep({
 
       <div className="flex flex-col gap-2">
         <label htmlFor="optimize" className="text-sm font-medium">
-          I want to optimize
+          Describe how you want your website optimized
         </label>
         <textarea
           id="optimize"
