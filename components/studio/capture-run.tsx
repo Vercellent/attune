@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { domToJpeg } from 'modern-screenshot'
+import { Check, Loader2, Minus } from 'lucide-react'
+import { AttuneLogo } from '@/components/attune-logo'
 import { Button } from '@/components/ui/button'
 import type { Overview } from '@/lib/lab'
 import type { Rect } from '@/lib/types'
@@ -78,7 +80,7 @@ export function CaptureRun({ overview, onChange }: { overview: Overview; onChang
     overview.captures.map((c) => ({ title: c.title, note: c.note, friction: c.friction, action: c.action, target: c.target, screenshot: c.screenshot })),
   )
   const [status, setStatus] = useState<string>('Opening the site…')
-  const [cursor, setCursor] = useState<Rect | null>(null)
+  const [comparing, setComparing] = useState(overview.captures.length > 0)
   const [error, setError] = useState<string | null>(null)
   const [launching, setLaunching] = useState(false)
   const ready = overview.lab.phase === 'ready'
@@ -114,7 +116,6 @@ export function CaptureRun({ overview, onChange }: { overview: Overview; onChang
           const pageH = Math.min(doc.body.scrollHeight, 2400) || 1
           const top = r ? r.top + win.scrollY : 0
           const target = r && top < pageH ? { x: r.left / pageW, y: top / pageH, w: r.width / pageW, h: r.height / pageH } : null
-          setCursor(r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null)
           let screenshot: string | null = null
           try {
             screenshot = await domToJpeg(doc.body, { scale: 0.5, quality: 0.6, height: pageH })
@@ -132,8 +133,8 @@ export function CaptureRun({ overview, onChange }: { overview: Overview; onChang
             act(doc, a)
             await sleep(180)
           }
-          setCursor(null)
         }
+        setComparing(true)
         setStatus('Summarizing the journey…')
         await post({ kind: 'finish' })
         onChange()
@@ -150,80 +151,96 @@ export function CaptureRun({ overview, onChange }: { overview: Overview; onChang
     onChange()
   }
 
-  return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <p className="text-sm text-muted-foreground">{overview.lab.brief.optimize}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">{ready ? 'Journey captured' : 'Walking through your flow'}</h1>
-      </div>
 
-      {ready && overview.lab.confirmation && (
-        <div className="flex flex-col gap-4 rounded-xl border bg-card p-6 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-1">
-            <p className="text-pretty leading-relaxed">{overview.lab.confirmation}</p>
-            <p className="text-sm text-muted-foreground">{overview.lab.flow.join(' → ')}</p>
-          </div>
-          <Button size="lg" onClick={launch} disabled={launching || overview.lab.status === 'working'} className="h-12 shrink-0 px-6 text-base">
+  type StageState = 'pending' | 'active' | 'done' | 'skipped'
+  const analyzeState: StageState = ready || comparing ? 'done' : 'active'
+  const compareState: StageState = ready ? 'done' : comparing ? 'active' : 'pending'
+  const stages: { title: string; detail: string; state: StageState }[] = [
+    {
+      title: 'Analyzing your website',
+      detail:
+        analyzeState === 'active'
+          ? steps.length
+            ? `Reviewed ${steps.length} ${steps.length === 1 ? 'screen' : 'screens'} · ${status}`
+            : status
+          : `Walked through ${steps.length} ${steps.length === 1 ? 'screen' : 'screens'} of your flow`,
+      state: analyzeState,
+    },
+    {
+      title: 'Comparing with Attune user research',
+      detail: 'Matching your flow against behavior patterns from thousands of tested users',
+      state: compareState,
+    },
+    {
+      title: 'Analyzing your user data',
+      detail: 'No user data connected yet — this step will use the data you share with Attune',
+      state: ready ? 'skipped' : 'pending',
+    },
+  ]
+
+  return (
+    <main className="mx-auto flex min-h-[calc(100svh-4rem)] w-full max-w-xl flex-col justify-center gap-10 px-6 py-16">
+      <AttuneLogo className={cn('h-12 text-foreground', !ready && 'animate-pulse')} />
+
+      <section aria-labelledby="reasoning-heading" className="flex flex-col gap-6">
+        <div className="flex flex-col gap-1">
+          <h1 id="reasoning-heading" className="text-sm font-medium uppercase tracking-widest text-muted-foreground">
+            Reasoning
+          </h1>
+          <p className="text-pretty text-2xl leading-snug">
+            {ready ? 'Your flow is ready to optimize.' : 'Attune is studying your flow…'}
+          </p>
+        </div>
+
+        <ol className="flex flex-col gap-5" aria-live="polite">
+          {stages.map((stage) => (
+            <li key={stage.title} className="flex gap-4">
+              <span
+                className={cn(
+                  'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border',
+                  stage.state === 'done' && 'border-primary bg-primary text-primary-foreground',
+                  stage.state === 'active' && 'border-foreground text-foreground',
+                  (stage.state === 'pending' || stage.state === 'skipped') && 'border-border text-muted-foreground',
+                )}
+                aria-hidden="true"
+              >
+                {stage.state === 'done' && <Check className="size-3.5" />}
+                {stage.state === 'active' && <Loader2 className="size-3.5 animate-spin" />}
+                {stage.state === 'skipped' && <Minus className="size-3.5" />}
+              </span>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <p className={cn('font-medium', (stage.state === 'pending' || stage.state === 'skipped') && 'text-muted-foreground')}>
+                  {stage.title}
+                  <span className="sr-only"> — {stage.state}</span>
+                </p>
+                <p className={cn('text-sm text-muted-foreground', stage.state === 'active' ? 'truncate' : 'text-pretty')}>{stage.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </section>
+
+      {ready && (
+        <div className="flex flex-col gap-4 border-t pt-8">
+          {overview.lab.confirmation && <p className="text-pretty leading-relaxed">{overview.lab.confirmation}</p>}
+          <Button size="lg" onClick={launch} disabled={launching || overview.lab.status === 'working'} className="h-12 text-base">
             {launching || overview.lab.status === 'working' ? 'Starting…' : 'Start experiments'}
           </Button>
         </div>
       )}
 
-      <div className={cn('grid gap-6', ready ? 'grid-cols-1' : 'lg:grid-cols-[1fr_360px]')}>
-        {!ready && (
-          <div className="flex flex-col gap-2">
-            <div className="relative aspect-[4/3] overflow-hidden rounded-xl border bg-muted">
-              <iframe ref={frameRef} src={overview.lab.brief.targetUrl.startsWith('/') ? overview.lab.brief.targetUrl : '/shop'} title="Computer use view" className="size-full" />
-              {cursor && (
-                <div
-                  className="pointer-events-none absolute rounded-md ring-2 ring-rose-500 ring-offset-2 transition-all"
-                  style={{ left: cursor.x, top: cursor.y, width: cursor.w, height: cursor.h }}
-                  aria-hidden="true"
-                />
-              )}
-            </div>
-            <p className="font-mono text-xs text-muted-foreground" aria-live="polite">
-              {error ? <span className="text-destructive">{error}</span> : status}
-            </p>
-          </div>
-        )}
-
-        <ol className={cn('flex flex-col gap-4', ready && 'md:grid md:grid-cols-2 lg:grid-cols-3')}>
-          {steps.map((s, i) => (
-            <li key={i} className="flex flex-col gap-2 rounded-xl border bg-card p-3">
-              {s.screenshot && (
-                <div className="relative overflow-hidden rounded-md border">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={s.screenshot} alt={`Screenshot of ${s.title}`} className="block w-full" />
-                  {s.target && s.target.x <= 1 && s.target.w <= 1 && (
-                    <div
-                      className="absolute rounded ring-2 ring-rose-500 ring-offset-1"
-                      style={{
-                        left: `${s.target.x * 100}%`,
-                        top: `${s.target.y * 100}%`,
-                        width: `${s.target.w * 100}%`,
-                        height: `${s.target.h * 100}%`,
-                      }}
-                      aria-hidden="true"
-                    />
-                  )}
-                </div>
-              )}
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-muted-foreground">{i + 1}</span>
-                <h2 className="text-sm font-medium">{s.title}</h2>
-              </div>
-              <p className="text-sm leading-relaxed text-muted-foreground">{s.note}</p>
-              {s.friction.map((f) => (
-                <p key={f} className="rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-700">
-                  {f}
-                </p>
-              ))}
-              <p className="text-xs text-foreground/80">→ {s.action}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </div>
+      {!ready && (
+        <iframe
+          ref={frameRef}
+          src={overview.lab.brief.targetUrl.startsWith('/') ? overview.lab.brief.targetUrl : '/shop'}
+          title="Website being analyzed"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="pointer-events-none fixed -left-[10000px] top-0 h-[900px] w-[1280px]"
+        />
+      )}
+    </main>
   )
 }
