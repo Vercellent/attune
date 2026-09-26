@@ -63,6 +63,30 @@ export function InterviewApp() {
   const buffers = useRef<{ events: TrackEvent[]; gaze: Map<string, GazeDwell>; rrweb: unknown[] }>({ events: [], gaze: new Map(), rrweb: [] })
   const gazer = useRef<WebGazer | null>(null)
   const lastGaze = useRef(0)
+  const [showGaze, setShowGaze] = useState(false)
+  const [gazeLive, setGazeLive] = useState(false)
+  const showGazeRef = useRef(false)
+  const gazeDot = useRef<HTMLDivElement>(null)
+
+  const toggleGaze = useCallback(() => {
+    const next = !showGazeRef.current
+    showGazeRef.current = next
+    setShowGaze(next)
+    gazer.current?.showVideoPreview(next)
+    if (!next && gazeDot.current) gazeDot.current.style.opacity = '0'
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Option changes e.key on macOS (e.g. "Ç"), so match the physical key.
+      if (e.shiftKey && e.altKey && e.code === 'KeyC') {
+        e.preventDefault()
+        toggleGaze()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleGaze])
 
   useEffect(() => {
     if (session) setMessages([{ role: 'assistant', text: `Thanks for helping! Your task:\n\n${session.task}\n\nRead it, then press Start. Press Stop when you're finished or stuck.` }])
@@ -89,7 +113,9 @@ export function InterviewApp() {
       if (e.source !== frameRef.current?.contentWindow || !e.data?.__lab) return
       const d = e.data as { kind: string; type?: TrackEvent['type']; page?: string; label?: string; events?: unknown[] }
       const now = Date.now()
-      if (d.kind === 'track' && d.type) {
+      if (d.kind === 'hotkey') {
+        toggleGaze()
+      } else if (d.kind === 'track' && d.type) {
         buffers.current.events.push({ t: now - startRef.current, ts: now, type: d.type, page: d.page ?? '', label: d.label?.slice(0, 80) })
       } else if (d.kind === 'rrweb' && d.events) {
         buffers.current.rrweb.push(...d.events)
@@ -102,7 +128,7 @@ export function InterviewApp() {
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [])
+  }, [toggleGaze])
 
   useEffect(() => {
     if (phase !== 'task') return
@@ -124,6 +150,11 @@ export function InterviewApp() {
         .setGazeListener((p) => {
           const frame = frameRef.current
           if (!p || !frame) return
+          const dot = gazeDot.current
+          if (dot && showGazeRef.current) {
+            dot.style.opacity = '1'
+            dot.style.transform = `translate(${p.x}px, ${p.y}px)`
+          }
           const now = Date.now()
           if (now - lastGaze.current < GAZE_INTERVAL) return
           lastGaze.current = now
@@ -133,12 +164,14 @@ export function InterviewApp() {
           if (x < 0 || y < 0 || x > r.width || y > r.height) return
           frame.contentWindow?.postMessage({ __labcmd: 'gaze', x, y }, '*')
         })
-        .showVideoPreview(false)
+        .showVideoPreview(showGazeRef.current)
         .showPredictionPoints(false)
         .begin()
+      setGazeLive(true)
       return true
     } catch {
       gazer.current = null
+      setGazeLive(false)
       return false
     }
   }
@@ -158,6 +191,8 @@ export function InterviewApp() {
     frameRef.current?.contentWindow?.postMessage({ __labcmd: 'stop' }, '*')
     gazer.current?.end()
     gazer.current = null
+    setGazeLive(false)
+    if (gazeDot.current) gazeDot.current.style.opacity = '0'
     setPhase('thinking')
     await new Promise((r) => setTimeout(r, 900))
     await flush()
@@ -220,6 +255,20 @@ export function InterviewApp() {
         onSend={send}
         ready={!!session}
       />
+
+      <div
+        ref={gazeDot}
+        aria-hidden="true"
+        className="pointer-events-none fixed left-0 top-0 z-50 -ml-4 -mt-4 size-8 rounded-full border-2 border-primary bg-primary/25 opacity-0 shadow-lg transition-transform duration-100 ease-out"
+      />
+
+      {showGaze && (
+        <div role="status" className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-full border bg-background/95 px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur">
+          <span className={cn('size-2 rounded-full', gazeLive ? 'animate-pulse bg-primary' : 'bg-muted-foreground')} aria-hidden="true" />
+          {gazeLive ? 'Live gaze tracker' : camera ? 'Gaze tracker starts when the task begins' : 'Camera is off'}
+          <kbd className="ml-1 rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground">Shift+Opt+C</kbd>
+        </div>
+      )}
 
       {phase === 'done' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-xl">

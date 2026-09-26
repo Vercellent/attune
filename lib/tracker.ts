@@ -24,6 +24,7 @@ if(hit&&hit.tagName==='A'){var h=hit.getAttribute('href')||'';if(h&&h.charAt(0)!
 },true);
 document.addEventListener('submit',function(e){e.preventDefault()},true);
 document.addEventListener('invalid',function(e){var f=e.target;send('form_error',(f&&(f.name||f.id||f.type))||'field')},true);
+window.addEventListener('keydown',function(e){if(e.shiftKey&&e.altKey&&e.code==='KeyC'){e.preventDefault();post({kind:'hotkey',name:'gaze'})}});
 window.addEventListener('message',function(e){var d=e.data;if(!d||!d.__labcmd)return;
 if(d.__labcmd==='start'&&!live){live=true;send('page_view',view);
 if(window.rrwebRecord){stopRec=window.rrwebRecord({emit:function(ev){buf.push(ev);if(!flushT)flushT=setTimeout(flush,800)},sampling:{mousemove:50,scroll:150,input:'last'},maskAllInputs:false})}}
