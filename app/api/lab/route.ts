@@ -28,6 +28,12 @@ const actionSchema = z.discriminatedUnion('action', [
     targetUrl: z.string().trim().min(1).max(500),
     optimize: z.string().trim().min(8).max(1000),
     target: z.number().int().min(4).max(200).optional(),
+    audience: z
+      .object({
+        role: z.string().trim().min(1).max(80),
+        companySize: z.string().trim().min(1).max(40),
+      })
+      .optional(),
   }),
   z.object({ action: z.literal('launch') }),
   z.object({ action: z.literal('advance') }),
@@ -40,8 +46,11 @@ export async function POST(req: Request) {
   const body = parsed.data
   return guard(async () => {
     if (body.action === 'start') {
+      const optimize = body.audience
+        ? `${body.optimize}\n\nTarget users: ${body.audience.role} at companies with ${body.audience.companySize} employees.`
+        : body.optimize
       await startCapture(
-        { objective: body.objective as never, targetUrl: body.targetUrl, optimize: body.optimize },
+        { objective: body.objective as never, targetUrl: body.targetUrl, optimize },
         body.target,
       )
       return NextResponse.json({ ok: true })

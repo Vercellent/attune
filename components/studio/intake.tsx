@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   ArrowLeft,
+  ChevronDown,
   Clapperboard,
   LayoutTemplate,
   Mail,
@@ -16,6 +17,17 @@ import {
 import { AttuneLogo } from '@/components/attune-logo'
 import { OBJECTIVES, type Objective } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+const USER_ROLES = [
+  'Procurement & sourcing teams',
+  'Finance & AP teams',
+  'IT & security buyers',
+  'Operations managers',
+  'Legal & compliance',
+  'Executives & budget owners',
+]
+
+const COMPANY_SIZES = ['50–200', '200–1,000', '1,000–5,000', '5,000+']
 
 const OBJECTIVE_ICONS: Record<Objective, LucideIcon> = {
   website_flow: Route,
@@ -97,6 +109,8 @@ function DetailsStep({
   onStarted: () => void | Promise<void>
 }) {
   const [url, setUrl] = useState('/shop')
+  const [role, setRole] = useState('')
+  const [companySize, setCompanySize] = useState('')
   const [optimize, setOptimize] = useState('')
   const [target, setTarget] = useState(40)
   const [pending, setPending] = useState(false)
@@ -111,7 +125,14 @@ function DetailsStep({
     const res = await fetch('/api/lab', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'start', objective, targetUrl: url, optimize, target }),
+      body: JSON.stringify({
+        action: 'start',
+        objective,
+        targetUrl: url,
+        optimize,
+        target,
+        audience: { role, companySize },
+      }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -142,25 +163,80 @@ function DetailsStep({
             {label}
           </span>
           <h1 className="text-balance font-serif text-4xl font-extralight leading-[1.1] tracking-tight md:text-5xl">
-            Show us the <span className="italic">journey</span>
+            Tell us more about your <span className="italic">product</span>
           </h1>
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
         <label htmlFor="url" className="text-sm font-medium">
-          Website link
+          Product link
         </label>
         <input
           id="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           required
-          placeholder="https://yourstore.com"
+          placeholder="https://yourproduct.com"
           className="h-12 rounded-lg border bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <p className="text-xs text-muted-foreground">For this demo the agent evaluates the Northstar procurement platform at /shop.</p>
       </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="role" className="text-sm font-medium">
+          Tell us more about your users
+        </label>
+        <div className="relative">
+          <select
+            id="role"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            required
+            className="h-12 w-full appearance-none rounded-lg border bg-background px-3 pr-10 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="" disabled>
+              Who are they?
+            </option>
+            {USER_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+        </div>
+      </div>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-2 text-sm font-medium">Company size</legend>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          {COMPANY_SIZES.map((s) => (
+            <label
+              key={s}
+              className={cn(
+                'flex h-12 cursor-pointer items-center justify-center rounded-lg border bg-background text-sm transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                companySize === s ? 'border-foreground bg-foreground text-background' : 'hover:border-foreground',
+              )}
+            >
+              <input
+                type="radio"
+                name="companySize"
+                value={s}
+                checked={companySize === s}
+                onChange={() => setCompanySize(s)}
+                required
+                className="sr-only"
+              />
+              {s}
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Employees at your customers&apos; companies.</p>
+      </fieldset>
 
       <div className="flex flex-col gap-2">
         <label htmlFor="optimize" className="text-sm font-medium">
