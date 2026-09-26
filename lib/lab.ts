@@ -5,6 +5,7 @@ import { computeMetrics, summarizeTrace } from './scoring'
 import { SHOP_HTML } from './shop'
 import { buildVariant, cloneSite, reconSite } from './agents/builder'
 import { planGeneration, synthesizeGeneration } from './agents/strategist'
+import { logActivity } from './activity'
 import {
   LAB_ID,
   type Brief,
@@ -29,6 +30,7 @@ export async function postOwnerUpdate(text: string) {
 
 async function patchLab(set: Partial<LabDoc>) {
   const { labs } = await collections()
+  if (set.step) logActivity('orchestrator', 'system', set.step)
   await labs.updateOne({ _id: LAB_ID }, { $set: { ...set, updatedAt: new Date() } })
 }
 
@@ -68,6 +70,7 @@ export async function createLab(brief: Brief) {
   if (current?.status === 'working' && !stale) throw new Error('The lab is busy. Try again in a moment.')
   await Promise.all([
     c.generations.deleteMany({ labId: LAB_ID }),
+    c.activity.deleteMany({ labId: LAB_ID }),
     c.variants.deleteMany({ labId: LAB_ID }),
     c.sessions.deleteMany({ labId: LAB_ID }),
     c.findings.deleteMany({ labId: LAB_ID }),

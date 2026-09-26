@@ -8,6 +8,7 @@ import { SetupForm } from './setup-form'
 import { StatusBar } from './status-bar'
 import { Versions } from './versions'
 import { Learnings } from './learnings'
+import { Shell } from './shell'
 
 export type OverviewData = Overview
 
@@ -61,13 +62,16 @@ export function StudioApp() {
   }
 
   return (
-    <div className="flex h-dvh flex-col lg:flex-row">
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <StatusBar data={data} onChange={() => mutate()} onNew={() => setEditing(true)} />
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-5 py-8 md:px-8">
-          <Versions data={data} />
-          <Learnings data={data} />
+    <div className="flex min-h-dvh flex-col lg:h-dvh lg:flex-row">
+      <main className="flex h-dvh shrink-0 flex-col lg:h-auto lg:min-h-0 lg:flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <StatusBar data={data} onChange={() => mutate()} onNew={() => setEditing(true)} />
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-5 py-8 md:px-8">
+            <Versions data={data} />
+            <Learnings data={data} />
+          </div>
         </div>
+        <Shell running={data.lab.status === 'working'} />
       </main>
       <aside className="flex h-[50dvh] shrink-0 flex-col border-t border-border bg-background lg:h-auto lg:w-[400px] lg:border-l lg:border-t-0">
         <OwnerChat />

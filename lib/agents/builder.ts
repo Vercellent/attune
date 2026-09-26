@@ -1,5 +1,6 @@
 import 'server-only'
-import { Agent, tool } from '@strands-agents/sdk'
+import { tool } from '@strands-agents/sdk'
+import { tracedAgent } from './trace'
 import { z } from 'zod'
 import type { Brief, SiteSpec } from '../types'
 import { codex } from './model'
@@ -22,7 +23,7 @@ const reconSchema = z.object({
 
 /** Reconnaissance: extract a design + UX spec from the page, like the cloner template's recon phase. */
 export async function reconSite(html: string, brief: Brief): Promise<SiteSpec> {
-  const agent = new Agent({
+  const agent = tracedAgent('recon', {
     model: codex('conversational'),
     printer: false,
     systemPrompt:
@@ -37,7 +38,7 @@ export async function reconSite(html: string, brief: Brief): Promise<SiteSpec> {
 
 /** Foundation: rebuild an external page as a single-file, instrumented replica. */
 export async function cloneSite(html: string, spec: SiteSpec, brief: Brief): Promise<string> {
-  const agent = new Agent({
+  const agent = tracedAgent('clone', {
     model: codex('builder', 32000),
     printer: false,
     systemPrompt: `You are an expert front-end engineer who produces pixel-faithful clones of websites as a single HTML file.\n${CONVENTIONS}`,
@@ -140,7 +141,7 @@ export async function buildVariant(opts: {
     },
   })
 
-  const agent = new Agent({
+  const agent = tracedAgent(`codex · ${opts.name}`, {
     model: codex('builder'),
     printer: false,
     tools: [readSite, editSite, runQa, finish],

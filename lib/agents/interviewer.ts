@@ -1,5 +1,6 @@
 import 'server-only'
-import { Agent, tool, type MessageData } from '@strands-agents/sdk'
+import { tool, type MessageData } from '@strands-agents/sdk'
+import { tracedAgent } from './trace'
 import { z } from 'zod'
 import { collections } from '../db'
 import { computeMetrics, scoreSession, summarizeTrace } from '../scoring'
@@ -101,7 +102,7 @@ export async function interviewTurn(sessionId: string, input: { text?: string; t
       : []),
   ]
 
-  const agent = new Agent({
+  const agent = tracedAgent(`interviewer · ${sessionId.slice(0, 6)}`, {
     model: codex('conversational'),
     printer: false,
     messages: toHistory(session.messages),

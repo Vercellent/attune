@@ -15,6 +15,21 @@ export type Topic = (typeof TOPICS)[number]
 
 export type Confidence = 'low' | 'medium' | 'high'
 
+export type ActivityKind = 'system' | 'start' | 'prompt' | 'thinking' | 'text' | 'tool' | 'result' | 'error' | 'done'
+
+export type ActivityDoc = {
+  _id: string
+  labId: string
+  seq: number
+  at: Date
+  agent: string
+  kind: ActivityKind
+  text: string
+  detail?: string
+}
+
+export type ActivityEvent = Omit<ActivityDoc, '_id' | 'labId' | 'at'> & { id: string; at: string }
+
 export type Brief = {
   targetUrl: string
   goal: string

@@ -1,5 +1,6 @@
 import 'server-only'
-import { Agent, tool, type MessageData } from '@strands-agents/sdk'
+import { tool, type MessageData } from '@strands-agents/sdk'
+import { tracedAgent } from './trace'
 import { z } from 'zod'
 import { collections, newId } from '../db'
 import { getOverview, setAutopilot } from '../lab'
@@ -42,7 +43,7 @@ export async function ownerTurn(text: string, onAdvance: () => Promise<string>) 
 
   await ownerMessages.insertOne({ _id: newId(), labId: LAB_ID, role: 'user', text, createdAt: new Date() })
 
-  const agent = new Agent({
+  const agent = tracedAgent('concierge', {
     model: codex('conversational'),
     printer: false,
     messages: history,

@@ -1,5 +1,5 @@
 import 'server-only'
-import { Agent } from '@strands-agents/sdk'
+import { tracedAgent } from './trace'
 import { z } from 'zod'
 import { TOPICS, type Brief, type Playbook, type RetrievedMemory, type SiteSpec } from '../types'
 import { codex } from './model'
@@ -28,7 +28,7 @@ export async function planGeneration(opts: {
   championChanges: string[]
 }) {
   const memoryUsed: RetrievedMemory[] = []
-  const agent = new Agent({
+  const agent = tracedAgent('strategist', {
     model: codex('conversational'),
     printer: false,
     tools: [memoryTool(memoryUsed)],
@@ -73,7 +73,7 @@ export async function synthesizeGeneration(opts: {
   playbook: Playbook | null
   evidence: string
 }) {
-  const agent = new Agent({
+  const agent = tracedAgent('synthesizer', {
     model: codex('conversational'),
     printer: false,
     tools: [memoryTool()],

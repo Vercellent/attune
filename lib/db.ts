@@ -1,6 +1,7 @@
 import 'server-only'
 import { MongoClient, type Db } from 'mongodb'
 import type {
+  ActivityDoc,
   FindingDoc,
   GenerationDoc,
   LabDoc,
@@ -44,6 +45,7 @@ export async function collections() {
     sessions: db.collection<SessionDoc>('sessions'),
     findings: db.collection<FindingDoc>('findings'),
     ownerMessages: db.collection<OwnerMessageDoc>('owner_messages'),
+    activity: db.collection<ActivityDoc>('activity'),
   }
 }
 
