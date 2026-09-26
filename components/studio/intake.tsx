@@ -2,7 +2,29 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { OBJECTIVES } from '@/lib/types'
+import {
+  Clapperboard,
+  LayoutTemplate,
+  Mail,
+  Megaphone,
+  Route,
+  Smartphone,
+  Tag,
+  type LucideIcon,
+} from 'lucide-react'
+import { AttuneLogo } from '@/components/attune-logo'
+import { OBJECTIVES, type Objective } from '@/lib/types'
+import { cn } from '@/lib/utils'
+
+const OBJECTIVE_ICONS: Record<Objective, LucideIcon> = {
+  website_flow: Route,
+  digital_ads: Megaphone,
+  product_videos: Clapperboard,
+  landing_pages: LayoutTemplate,
+  email_campaigns: Mail,
+  app_onboarding: Smartphone,
+  pricing_page: Tag,
+}
 
 export function Intake({ onStarted }: { onStarted: () => void | Promise<void> }) {
   const [objective, setObjective] = useState('')
@@ -32,36 +54,50 @@ export function Intake({ onStarted }: { onStarted: () => void | Promise<void> })
   }
 
   return (
-    <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-8 px-6 py-20">
+    <form onSubmit={submit} className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-20">
       <div className="flex flex-col gap-4">
+        <AttuneLogo className="mb-2 h-10 self-start text-foreground" />
         <h1 className="text-balance font-serif text-5xl font-extralight leading-[1.05] tracking-tight md:text-6xl">
           Welcome to Attune, <span className="italic">Sarah</span>
         </h1>
         <p className="text-lg text-muted-foreground">What do you want to optimize?</p>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <label htmlFor="objective" className="text-sm font-medium">
-          Optimize
-        </label>
-        <select
-          id="objective"
-          value={objective}
-          onChange={(e) => setObjective(e.target.value)}
-          required
-          className="h-12 rounded-lg border bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="" disabled>
-            Choose one
-          </option>
-          {OBJECTIVES.map((o) => (
-            <option key={o.value} value={o.value} disabled={!o.available}>
-              {o.label}
-              {o.available ? '' : ' (coming soon)'}
-            </option>
-          ))}
-        </select>
-      </div>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="sr-only">Optimize</legend>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          {OBJECTIVES.map((o) => {
+            const Icon = OBJECTIVE_ICONS[o.value]
+            const checked = objective === o.value
+            return (
+              <label
+                key={o.value}
+                className={cn(
+                  'relative flex min-h-28 flex-col justify-between gap-4 rounded-xl border bg-background p-4 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                  o.available ? 'cursor-pointer hover:border-foreground/40' : 'cursor-not-allowed opacity-50',
+                  checked && 'border-foreground bg-foreground text-background hover:border-foreground',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="objective"
+                  value={o.value}
+                  checked={checked}
+                  disabled={!o.available}
+                  onChange={() => setObjective(o.value)}
+                  required
+                  className="sr-only"
+                />
+                <Icon className="size-5" aria-hidden="true" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">{o.label}</span>
+                  {!o.available && <span className="text-xs text-muted-foreground">Coming soon</span>}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </fieldset>
 
       {selected?.value === 'website_flow' && (
         <>
