@@ -1,11 +1,11 @@
 import 'server-only'
 import { tool } from '@strands-agents/sdk'
-import { tracedAgent } from './trace'
 import { z } from 'zod'
-import type { Brief, SiteSpec } from '../types'
+import { tracedAgent } from './trace'
 import { codex } from './model'
-
-const MAX_EDITS = 30
+import { memoryTool } from './tools'
+import { allowTools, guardrailText, rulesFor } from '../harness'
+import type { Brief, HarnessConfig, SiteSpec } from '../types'
 
 const CONVENTIONS = `Site conventions (must be preserved):
 - Single self-contained HTML document with inline <style> and <script>. No external JS or CSS frameworks.
@@ -21,37 +21,19 @@ const reconSchema = z.object({
   frictionPoints: z.array(z.string()).describe('Concrete UX problems likely to hurt the goal, most severe first'),
 })
 
-/** Reconnaissance: extract a design + UX spec from the page, like the cloner template's recon phase. */
-export async function reconSite(html: string, brief: Brief): Promise<SiteSpec> {
+/** Reconnaissance: turn the captured journey + page source into a design and UX spec. */
+export async function reconSite(html: string, brief: Brief, journey: string): Promise<SiteSpec> {
   const agent = tracedAgent('recon', {
     model: codex('conversational'),
     printer: false,
     systemPrompt:
-      'You are a senior UX researcher and front-end engineer doing reconnaissance on a website before a conversion experiment. Be concrete and specific; reference real copy and elements.',
+      'You are a senior UX researcher and front-end engineer doing reconnaissance before a conversion experiment. Be concrete; reference real copy and elements.',
   })
   const result = await agent.invoke(
-    `Business goal: ${brief.goal}\nParticipant task: ${brief.task}\n\nSite HTML:\n${html.slice(0, 60000)}`,
+    `Client wants to optimize: ${brief.optimize}\nParticipant task: ${brief.task}\n\nJourney captured by computer use:\n${journey}\n\nSite HTML:\n${html.slice(0, 60000)}`,
     { structuredOutputSchema: reconSchema },
   )
   return result.structuredOutput as SiteSpec
-}
-
-/** Foundation: rebuild an external page as a single-file, instrumented replica. */
-export async function cloneSite(html: string, spec: SiteSpec, brief: Brief): Promise<string> {
-  const agent = tracedAgent('clone', {
-    model: codex('builder', 32000),
-    printer: false,
-    systemPrompt: `You are an expert front-end engineer who produces pixel-faithful clones of websites as a single HTML file.\n${CONVENTIONS}`,
-  })
-  const result = await agent.invoke(
-    `Rebuild this page faithfully so we can run a usability experiment on it. Keep copy, layout, and visual style; turn the goal flow into working screens (${spec.flow.join(' → ')}). Keep existing friction — do not fix anything yet.\nTask: ${brief.task}\nDesign tokens: ${spec.designTokens.join('; ')}\n\nSource HTML:\n${html.slice(0, 60000)}\n\nReply with only the complete HTML document in a single \`\`\`html code block.`,
-  )
-  const text = result.toString()
-  const match = text.match(/```html\s*([\s\S]*?)```/i)
-  const out = (match?.[1] ?? text).trim()
-  const issues = qaSite(out, [])
-  if (issues.length) throw new Error(`Clone failed QA: ${issues.join('; ')}`)
-  return out
 }
 
 export function qaSite(html: string, requiredScreens: string[]): string[] {
@@ -85,9 +67,9 @@ const numbered = (html: string, from = 1, to = Number.POSITIVE_INFINITY) =>
     .map(([n, line]) => `${n}| ${line}`)
     .join('\n')
 
-export type VariantBuild = { html: string; changes: string[] }
+export type VariantBuild = { html: string; changes: string[]; qaRetries: number }
 
-/** Builder: a Codex agent that applies one hypothesis to the champion page through surgical edit tools. */
+/** Builder: a Codex agent that applies one hypothesis through surgical edits, bounded by the live harness. */
 export async function buildVariant(opts: {
   baseHtml: string
   brief: Brief
@@ -95,10 +77,13 @@ export async function buildVariant(opts: {
   name: string
   hypothesis: string
   instructions: string
+  harness: HarnessConfig
 }): Promise<VariantBuild> {
+  const maxEdits = opts.harness.guardrails.maxEdits
   let html = opts.baseHtml
   let edits = 0
   let changes: string[] = []
+  let qaRetries = 0
   const requiredScreens = screensOf(opts.baseHtml)
 
   const readSite = tool({
@@ -113,13 +98,13 @@ export async function buildVariant(opts: {
       'Replace one exact, unique snippet of the current HTML (no line-number prefixes) with new content. Prefer several small surgical edits over rewriting large blocks.',
     inputSchema: z.object({ find: z.string().min(1), replace: z.string() }),
     callback: ({ find, replace }) => {
-      if (edits >= MAX_EDITS) return 'STOP: edit budget exhausted. Call finish now.'
+      if (edits >= maxEdits) return `STOP: harness edit budget (${maxEdits}) exhausted. Call finish now.`
       const at = html.indexOf(find)
       if (at < 0) return 'ERROR: snippet not found. Use read_site and copy the text exactly.'
       if (html.indexOf(find, at + 1) >= 0) return 'ERROR: snippet is not unique. Include more surrounding context.'
       html = html.slice(0, at) + replace + html.slice(at + find.length)
       edits++
-      return `OK (${edits}/${MAX_EDITS} edits used)`
+      return `OK (${edits}/${maxEdits} edits used)`
     },
   })
   const runQa = tool({
@@ -144,20 +129,21 @@ export async function buildVariant(opts: {
   const agent = tracedAgent(`codex · ${opts.name}`, {
     model: codex('builder'),
     printer: false,
-    tools: [readSite, editSite, runQa, finish],
-    systemPrompt: `You are a Codex front-end engineer on a conversion-optimization team. You receive the current champion page and ONE hypothesis, and you implement exactly that hypothesis with minimal, high-quality edits that match the existing design system.\n${CONVENTIONS}\nWorkflow: plan briefly → edit_site (small, exact snippets) → run_qa → fix until PASSED → finish.`,
+    tools: allowTools(opts.harness, 'builder', [readSite, editSite, runQa, finish, memoryTool([], opts.harness.context.memoryK)]),
+    systemPrompt: `You are a Codex front-end engineer on a conversion-optimization team. You receive the current champion page and ONE hypothesis, and you implement exactly that hypothesis with minimal, high-quality edits that match the existing design system.\n${CONVENTIONS}${guardrailText(opts.harness)}${rulesFor(opts.harness, 'builder')}\nEdit budget: ${maxEdits}.\nWorkflow: plan briefly → edit_site (small, exact snippets) → run_qa → fix until PASSED → finish.`,
   })
 
   await agent.invoke(
-    `Variant: ${opts.name}\nHypothesis: ${opts.hypothesis}\nImplementation brief: ${opts.instructions}\n\nBusiness goal: ${opts.brief.goal}\nDesign tokens: ${opts.spec.designTokens.join('; ')}\n\nCurrent page:\n${numbered(html)}`,
+    `Variant: ${opts.name}\nHypothesis: ${opts.hypothesis}\nImplementation brief: ${opts.instructions}\n\nOptimizing: ${opts.brief.optimize}\nDesign tokens: ${opts.spec.designTokens.join('; ')}\n\nCurrent page:\n${numbered(html)}`,
   )
 
   let issues = qaSite(html, requiredScreens)
   if (issues.length) {
+    qaRetries++
     await agent.invoke(`Automated QA still fails:\n- ${issues.join('\n- ')}\nFix these with edit_site, run_qa, then finish.`)
     issues = qaSite(html, requiredScreens)
   }
   if (issues.length) throw new Error(`Variant "${opts.name}" failed QA: ${issues.join('; ')}`)
   if (html === opts.baseHtml) throw new Error(`Variant "${opts.name}" made no changes`)
-  return { html, changes: changes.length ? changes : [opts.hypothesis] }
+  return { html, changes: changes.length ? changes : [opts.hypothesis], qaRetries }
 }

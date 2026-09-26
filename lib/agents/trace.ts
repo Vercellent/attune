@@ -9,6 +9,7 @@ import {
   ModelMessageEvent,
 } from '@strands-agents/sdk'
 import { logActivity } from '../activity'
+import { recordUsage } from '../mission'
 
 type AgentConfig = NonNullable<ConstructorParameters<typeof Agent>[0]>
 type LooseBlock = { type: string; text?: string; json?: unknown; name?: string }
@@ -67,7 +68,10 @@ export function tracedAgent(label: string, config: AgentConfig) {
   })
 
   agent.addHook(AgentResultEvent, (event) => {
-    logActivity(label, 'done', `finished (${event.result.stopReason})`)
+    const usage = event.result.metrics?.accumulatedUsage
+    recordUsage(usage)
+    const tokens = usage ? ` · ${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out tokens` : ''
+    logActivity(label, 'done', `finished (${event.result.stopReason})${tokens}`)
   })
 
   return agent

@@ -2,7 +2,12 @@ import 'server-only'
 import { MongoClient, type Db } from 'mongodb'
 import type {
   ActivityDoc,
+  CaptureDoc,
+  DigestDoc,
   FindingDoc,
+  HarnessDoc,
+  MissionDoc,
+  RecordingChunkDoc,
   GenerationDoc,
   LabDoc,
   OwnerMessageDoc,
@@ -46,6 +51,11 @@ export async function collections() {
     findings: db.collection<FindingDoc>('findings'),
     ownerMessages: db.collection<OwnerMessageDoc>('owner_messages'),
     activity: db.collection<ActivityDoc>('activity'),
+    captures: db.collection<CaptureDoc>('captures'),
+    harness: db.collection<HarnessDoc>('harness'),
+    missions: db.collection<MissionDoc>('missions'),
+    digests: db.collection<DigestDoc>('digests'),
+    recordings: db.collection<RecordingChunkDoc>('recordings'),
   }
 }
 

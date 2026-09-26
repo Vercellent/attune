@@ -1,5 +1,16 @@
 export const LAB_ID = 'default'
 
+export const OBJECTIVES = [
+  { value: 'website_flow', label: 'Website flow', available: true },
+  { value: 'digital_ads', label: 'Digital ads', available: false },
+  { value: 'product_videos', label: 'Product videos', available: false },
+  { value: 'landing_pages', label: 'Landing pages', available: false },
+  { value: 'email_campaigns', label: 'Email campaigns', available: false },
+  { value: 'app_onboarding', label: 'App onboarding', available: false },
+  { value: 'pricing_page', label: 'Pricing page', available: false },
+] as const
+export type Objective = (typeof OBJECTIVES)[number]['value']
+
 export const TOPICS = [
   'pricing',
   'shipping',
@@ -15,7 +26,21 @@ export type Topic = (typeof TOPICS)[number]
 
 export type Confidence = 'low' | 'medium' | 'high'
 
-export type ActivityKind = 'system' | 'start' | 'prompt' | 'thinking' | 'text' | 'tool' | 'result' | 'error' | 'done'
+export type ActivityKind =
+  | 'system'
+  | 'start'
+  | 'prompt'
+  | 'thinking'
+  | 'text'
+  | 'tool'
+  | 'result'
+  | 'error'
+  | 'done'
+  | 'evolve'
+  | 'mission'
+  | 'memory'
+  | 'context'
+  | 'metric'
 
 export type ActivityDoc = {
   _id: string
@@ -31,8 +56,9 @@ export type ActivityDoc = {
 export type ActivityEvent = Omit<ActivityDoc, '_id' | 'labId' | 'at'> & { id: string; at: string }
 
 export type Brief = {
+  objective: Objective
   targetUrl: string
-  goal: string
+  optimize: string
   task: string
 }
 
@@ -50,20 +76,129 @@ export type Playbook = {
   nextHypotheses: string[]
 }
 
+export type LabPhase = 'capturing' | 'ready' | 'running' | 'complete'
+
 export type LabDoc = {
   _id: string
   brief: Brief
+  phase: LabPhase
+  journeySummary: string | null
+  confirmation: string | null
+  flow: string[]
   spec: SiteSpec | null
   baselineHtml: string | null
   generation: number
   status: 'idle' | 'working' | 'error'
   step: string | null
   error: string | null
-  autopilot: boolean
-  minSessions: number
+  targetExperiments: number
   playbook: Playbook | null
+  championVariantId: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+export type Rect = { x: number; y: number; w: number; h: number }
+
+export type CaptureDoc = {
+  _id: string
+  labId: string
+  index: number
+  screen: string
+  title: string
+  note: string
+  friction: string[]
+  action: string
+  target: Rect | null
+  screenshot: string | null
+  createdAt: Date
+}
+
+/* ---------------- Recursive harness ---------------- */
+
+export const AGENT_ROLES = ['strategist', 'builder', 'interviewer', 'synthesizer'] as const
+export type AgentRole = (typeof AGENT_ROLES)[number]
+
+export type HarnessRule = { id: string; agent: AgentRole; text: string; addedIn: number }
+
+export type HarnessChange = {
+  path: string
+  before: string
+  after: string
+  why: string
+}
+
+export type HarnessConfig = {
+  rules: HarnessRule[]
+  context: {
+    memoryK: number
+    digestCount: number
+    traceDetail: 'summary' | 'full'
+    maxContextChars: number
+  }
+  guardrails: {
+    maxEdits: number
+    protectedFacts: string[]
+    forbidden: string[]
+  }
+  tools: Record<AgentRole, string[]>
+  interview: {
+    behavioralQuestions: number
+    journeyQuestions: number
+    replayMoments: number
+    maxTurns: number
+  }
+  experiment: {
+    variantsPerGeneration: number
+    sessionsPerVariant: number
+  }
+}
+
+export type HarnessDoc = HarnessConfig & {
+  _id: string
+  labId: string
+  version: number
+  parent: number | null
+  author: 'seed' | 'architect' | 'rollback'
+  rationale: string
+  changes: HarnessChange[]
+  scoreAtAdoption: number | null
+  scoreAfter: number | null
+  createdAt: Date
+}
+
+/* ---------------- Long-horizon mission ---------------- */
+
+export type MetricSnapshot = {
+  score: number | null
+  completion: number | null
+  timeSec: number | null
+  friction: number | null
+  n: number
+}
+
+export type MissionDoc = {
+  _id: string
+  objective: string
+  target: number
+  experiments: number
+  epoch: number
+  baseline: MetricSnapshot | null
+  best: MetricSnapshot | null
+  tokens: { input: number; output: number; total: number }
+  agentRuns: number
+  milestones: { at: Date; text: string }[]
+  updatedAt: Date
+}
+
+export type DigestDoc = {
+  _id: string
+  labId: string
+  epoch: number
+  throughGeneration: number
+  text: string
+  embedding: number[] | null
+  createdAt: Date
 }
 
 export type RetrievedMemory = {
@@ -74,15 +209,24 @@ export type RetrievedMemory = {
   score: number | null
 }
 
+export type GenerationTelemetry = {
+  buildsAttempted: number
+  buildsFailed: number
+  qaRetries: number
+}
+
 export type GenerationDoc = {
   _id: string
   labId: string
   number: number
   status: 'building' | 'collecting' | 'closed'
+  harnessVersion: number
   memoryUsed: RetrievedMemory[]
   winnerVariantId: string | null
   learned: string | null
   score: number | null
+  metrics: MetricSnapshot | null
+  telemetry: GenerationTelemetry
   createdAt: Date
   closedAt: Date | null
 }
@@ -100,17 +244,35 @@ export type VariantDoc = {
   createdAt: Date
 }
 
+/* ---------------- Tester sessions ---------------- */
+
 export type TrackEventType = 'page_view' | 'click' | 'dead_click' | 'rage_click' | 'form_error' | 'complete'
 
 export type TrackEvent = {
   t: number
+  ts: number
   type: TrackEventType
   page: string
   label?: string
 }
 
+export type GazeDwell = { page: string; label: string; ms: number }
+
+export type MomentKind = 'dead_click' | 'rage_click' | 'form_error' | 'backtrack' | 'hesitation' | 'abandon'
+
+export type Moment = {
+  id: string
+  kind: MomentKind
+  t: number
+  ts: number
+  page: string
+  label: string
+  description: string
+}
+
 export type SessionMetrics = {
   durationMs: number
+  timeToCompleteMs: number | null
   clicks: number
   deadClicks: number
   rageClicks: number
@@ -122,10 +284,13 @@ export type SessionMetrics = {
   exitPage: string
 }
 
+export type Replay = { momentId: string; startTs: number; endTs: number; label: string }
+
 export type ChatMessage = {
   role: 'user' | 'assistant' | 'system'
   text: string
   at: Date
+  replay?: Replay
 }
 
 export type Insight = { topic: Topic; quote: string; note: string }
@@ -136,16 +301,29 @@ export type SessionDoc = {
   generation: number
   variantId: string
   variantKey: string
-  status: 'task' | 'interview' | 'done'
+  status: 'briefing' | 'task' | 'interview' | 'done'
+  camera: boolean
   events: TrackEvent[]
+  gaze: GazeDwell[]
   metrics: SessionMetrics | null
+  moments: Moment[]
   messages: ChatMessage[]
   insights: Insight[]
   priceConfidence: number | null
   summary: string | null
   score: number | null
-  startedAt: Date
+  createdAt: Date
+  taskStartedAt: Date | null
+  taskEndedAt: Date | null
   endedAt: Date | null
+}
+
+export type RecordingChunkDoc = {
+  _id: string
+  sessionId: string
+  seq: number
+  events: unknown[]
+  createdAt: Date
 }
 
 export type FindingDoc = {
