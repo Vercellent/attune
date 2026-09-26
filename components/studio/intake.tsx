@@ -159,7 +159,7 @@ function DetailsStep({
           placeholder="https://yourstore.com"
           className="h-12 rounded-lg border bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-        <p className="text-xs text-muted-foreground">For this demo the agent walks through the Brewline demo store at /shop.</p>
+        <p className="text-xs text-muted-foreground">For this demo the agent evaluates the Northstar procurement platform at /shop.</p>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -174,7 +174,7 @@ function DetailsStep({
           minLength={8}
           rows={4}
           autoFocus
-          placeholder="The flow of buying a coffee machine, going from home to product listing page to checkout"
+          placeholder="The flow of evaluating a procurement workspace, from solution discovery to supplier request and approval"
           className="rounded-lg border bg-background p-3 text-base leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>

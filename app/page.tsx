@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react'
 const LINKS = [
   { href: '/studio', title: 'Studio', body: 'For the business owner. Set a goal, watch rounds evolve, chat with the research lead.' },
   { href: '/interview', title: 'Interview', body: 'For participants. Try the site the agents built, then a short chat.' },
-  { href: '/shop', title: 'Test shop', body: 'Brewline — a fake coffee store with real checkout friction to optimize.' },
+  { href: '/shop', title: 'Test shop', body: 'Northstar — a fictional procurement platform with a real enterprise request flow to optimize.' },
 ]
 
 export default function Home() {

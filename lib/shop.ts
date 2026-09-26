@@ -1,148 +1,43 @@
 /**
- * Brewline: a deliberately imperfect single-file storefront used as the
- * default experiment target. Planted friction: shipping cost is hidden until
- * the final step, the cart CTA is weak, "Shipping details" looks like a link
- * but isn't, validation errors are vague, and there is no progress indicator.
+ * Northstar: a deliberately imperfect fictional procurement platform used as the
+ * default enterprise experiment target. Planted friction: approval status is
+ * unclear, vendor details are split across screens, and the request CTA is easy
+ * to miss.
  */
 export const SHOP_HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Brewline — Coffee gear</title>
+<title>Northstar — Procurement intelligence</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Georgia,'Times New Roman',serif;background:#f6f1ea;color:#2b2420;line-height:1.5}
-header{display:flex;justify-content:space-between;align-items:center;padding:18px 32px;border-bottom:1px solid #e3d9cc;background:#fbf8f4}
-.logo{font-size:22px;letter-spacing:.04em;cursor:pointer}
-nav a{margin-left:22px;color:#2b2420;font-size:14px;text-decoration:none}
-.cart-link{cursor:pointer}
-main{max-width:1040px;margin:0 auto;padding:40px 32px 80px}
-[data-screen]{display:none}
-[data-screen].active{display:block}
-.hero{display:flex;gap:40px;align-items:center;margin-bottom:56px}
-.hero h1{font-size:44px;font-weight:normal;line-height:1.1;margin-bottom:14px}
-.hero p{color:#6b5d52;max-width:420px}
-.hero img{width:380px;max-width:45%;border-radius:4px}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.card{background:#fbf8f4;border:1px solid #e3d9cc;padding:16px;cursor:pointer}
-.card img{width:100%;aspect-ratio:1;object-fit:cover;margin-bottom:12px}
-.card h3{font-weight:normal;font-size:17px}
-.muted{color:#8a7b6f;font-size:14px}
-.product{display:flex;gap:48px}
-.product img{width:48%;border:1px solid #e3d9cc}
-.product h1{font-weight:normal;font-size:34px;margin-bottom:6px}
-.price{font-size:22px;margin:12px 0 18px}
-ul.spec{margin:18px 0 24px 18px;color:#6b5d52;font-size:15px}
-button{font-family:inherit;cursor:pointer}
-.btn{background:#2b2420;color:#fbf8f4;border:0;padding:14px 26px;font-size:15px}
-.btn-quiet{background:transparent;color:#6b5d52;border:1px solid #cdbfb0;padding:10px 18px;font-size:13px}
-table{width:100%;border-collapse:collapse;margin:20px 0}
-td{padding:14px 0;border-bottom:1px solid #e3d9cc}
-td.r{text-align:right}
-.fineprint{font-size:12px;color:#a89888;margin:8px 0 22px}
-.fake-link{color:#8a5a3b;text-decoration:underline;font-size:14px}
-form{max-width:520px;display:grid;gap:14px;margin-top:18px}
-label{font-size:13px;color:#6b5d52;display:grid;gap:4px}
-input{font:inherit;padding:10px 12px;border:1px solid #cdbfb0;background:#fff}
-.error{color:#a33;font-size:13px;min-height:18px}
-.summary{background:#fbf8f4;border:1px solid #e3d9cc;padding:20px;max-width:520px;margin-top:18px}
-.row{display:flex;justify-content:space-between;padding:6px 0}
-.total{border-top:1px solid #e3d9cc;margin-top:8px;padding-top:12px;font-size:18px}
-.done{text-align:center;padding:60px 0}
-.done h1{font-weight:normal;font-size:36px;margin-bottom:10px}
-@media (max-width:720px){.hero,.product{flex-direction:column}.hero img,.product img{width:100%;max-width:100%}.grid{grid-template-columns:1fr}}
+body{font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#f4f5f2;color:#17221f;line-height:1.5}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 34px;border-bottom:1px solid #dce3df;background:#fbfcfa}
+.logo{font-size:18px;font-weight:700;letter-spacing:.02em;cursor:pointer}.logo span{color:#2a7d68}
+nav a{margin-left:24px;color:#53635d;font-size:13px;text-decoration:none}.nav-cta{color:#17634f!important;font-weight:700}
+main{max-width:1120px;margin:0 auto;padding:42px 34px 90px}[data-screen]{display:none}[data-screen].active{display:block}
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;margin-bottom:58px}.eyebrow{color:#28735f;text-transform:uppercase;letter-spacing:.14em;font-size:11px;font-weight:700;margin-bottom:14px}.hero h1{font-size:52px;letter-spacing:-.045em;line-height:1.02;margin-bottom:18px}.hero p{color:#60716b;max-width:490px;font-size:17px}.hero-art{min-height:300px;border-radius:12px;background:linear-gradient(135deg,#122d27,#2c8068);padding:24px;color:#fff;display:flex;flex-direction:column;justify-content:space-between}.hero-art .signal{font-size:12px;opacity:.72}.hero-art strong{font-size:76px;letter-spacing:-.08em;line-height:.9}.hero-art small{font-size:12px;opacity:.72}
+.section-head{display:flex;justify-content:space-between;align-items:end;margin-bottom:18px}.section-head h2{font-size:22px;letter-spacing:-.02em}.muted{color:#73827c;font-size:13px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{background:#fbfcfa;border:1px solid #dce3df;border-radius:8px;padding:18px;cursor:pointer}.card:hover{border-color:#28735f}.card-visual{height:150px;border-radius:6px;background:#e6eee9;margin-bottom:16px;padding:16px;color:#28735f;font-size:12px;font-weight:700;display:flex;justify-content:space-between;align-items:end}.card:nth-child(2) .card-visual{background:#e9e8f0;color:#54517b}.card:nth-child(3) .card-visual{background:#f1e9dc;color:#8a642d}.card h3{font-size:16px;margin-bottom:5px}.card p{font-size:13px;color:#73827c}
+.product{display:grid;grid-template-columns:.9fr 1.1fr;gap:52px;align-items:start}.product-visual{min-height:430px;border-radius:10px;background:linear-gradient(145deg,#17372f,#5b9b83);padding:28px;color:#fff;display:flex;flex-direction:column;justify-content:space-between}.product-visual strong{font-size:76px;letter-spacing:-.08em}.product h1{font-size:38px;letter-spacing:-.04em;margin:8px 0}.price{font-size:24px;margin:14px 0 20px}.product-copy{color:#60716b;max-width:500px}.spec{margin:22px 0 28px 18px;color:#60716b;font-size:14px}.btn{font-family:inherit;cursor:pointer;background:#17634f;color:#fff;border:0;border-radius:5px;padding:14px 24px;font-size:14px;font-weight:700}.btn-quiet{font-family:inherit;cursor:pointer;background:transparent;color:#17634f;border:1px solid #9db9ad;border-radius:5px;padding:11px 18px;font-size:13px;font-weight:700}
+table{width:100%;border-collapse:collapse;margin:22px 0;background:#fbfcfa;border:1px solid #dce3df;border-radius:8px;overflow:hidden}td{padding:18px;border-bottom:1px solid #e5ebe7}td.r{text-align:right}.fineprint{font-size:12px;color:#87948f;margin:10px 0 22px}.fake-link{color:#28735f;text-decoration:underline;font-size:13px}form{max-width:560px;display:grid;gap:16px;margin-top:22px}label{font-size:13px;color:#53635d;display:grid;gap:6px}input{font:inherit;padding:12px;border:1px solid #c9d5cf;border-radius:5px;background:#fff}.error{color:#a33;font-size:13px;min-height:18px}.summary{background:#fbfcfa;border:1px solid #dce3df;border-radius:8px;padding:20px;max-width:560px;margin-top:20px}.row{display:flex;justify-content:space-between;padding:8px 0}.total{border-top:1px solid #dce3df;margin-top:8px;padding-top:14px;font-size:18px}.done{text-align:center;padding:90px 0}.done h1{font-size:42px;letter-spacing:-.04em;margin-bottom:10px}
+@media (max-width:720px){header{padding:16px 20px}nav a{margin-left:10px;font-size:12px}main{padding:30px 20px 70px}.hero,.product{grid-template-columns:1fr;gap:28px}.hero h1{font-size:42px}.grid{grid-template-columns:1fr}.hero-art{min-height:240px}}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo" onclick="show('home')">Brewline</div>
-  <nav><a href="#" onclick="show('home');return false">Shop</a><a href="#">Journal</a><a href="#" class="cart-link" onclick="show('cart');return false">Cart (<span id="count">0</span>)</a></nav>
-</header>
+<header><div class="logo" onclick="show('home')">north<span>star</span></div><nav><a href="#" onclick="show('home');return false">Solutions</a><a href="#">Resources</a><a href="#" class="nav-cta" onclick="show('cart');return false">Request queue (<span id="count">0</span>)</a></nav></header>
 <main>
-  <section data-screen="home" class="active">
-    <div class="hero">
-      <div>
-        <h1>Slow mornings,<br>better coffee.</h1>
-        <p>Considered brewing equipment for people who care about the ritual as much as the cup.</p>
-      </div>
-      <img src="/images/brewline-aura.png" alt="Brewline Aura espresso machine">
-    </div>
-    <div class="grid">
-      <div class="card" onclick="show('product')"><img src="/images/brewline-aura.png" alt="Aura espresso machine"><h3>Aura Espresso Machine</h3><p class="muted">From $349</p></div>
-      <div class="card"><img src="/images/brewline-grinder.png" alt="Cone burr grinder"><h3>Cone Burr Grinder</h3><p class="muted">Sold out</p></div>
-      <div class="card"><img src="/images/brewline-kettle.png" alt="Pour-over kettle"><h3>Pour-over Kettle</h3><p class="muted">Sold out</p></div>
-    </div>
-  </section>
-
-  <section data-screen="product">
-    <div class="product">
-      <img src="/images/brewline-aura.png" alt="Aura espresso machine">
-      <div>
-        <p class="muted">Espresso</p>
-        <h1>Aura Espresso Machine</h1>
-        <p class="price">$349.00</p>
-        <p>A compact single-boiler machine with a 58mm group head and a steam wand that actually textures milk.</p>
-        <ul class="spec"><li>15 bar pump, PID temperature control</li><li>Ready in 90 seconds</li><li>Two-year warranty</li></ul>
-        <button class="btn-quiet" onclick="addToCart()">Add to bag</button>
-      </div>
-    </div>
-  </section>
-
-  <section data-screen="cart">
-    <h2 style="font-weight:normal">Your bag</h2>
-    <table><tr><td>Aura Espresso Machine × <span id="qty">0</span></td><td class="r" id="line">$0.00</td></tr></table>
-    <p class="fineprint">Taxes and shipping calculated at checkout.</p>
-    <span class="fake-link">Shipping details</span>
-    <div style="margin-top:28px"><button class="btn-quiet" onclick="goShipping()">Continue</button></div>
-  </section>
-
-  <section data-screen="shipping">
-    <h2 style="font-weight:normal">Delivery</h2>
-    <form id="ship" novalidate onsubmit="submitShipping(event)">
-      <label>Full name<input name="name" required></label>
-      <label>Email<input name="email" type="email" required></label>
-      <label>Street address<input name="address" required></label>
-      <label>ZIP code<input name="zip" required pattern="[0-9]{5}"></label>
-      <div class="error" id="err"></div>
-      <div><button class="btn-quiet" type="submit">Next</button></div>
-    </form>
-  </section>
-
-  <section data-screen="review">
-    <h2 style="font-weight:normal">Review</h2>
-    <div class="summary">
-      <div class="row"><span>Aura Espresso Machine</span><span>$349.00</span></div>
-      <div class="row"><span>Shipping (standard)</span><span>$19.00</span></div>
-      <div class="row"><span>Handling</span><span>$6.00</span></div>
-      <div class="row total"><span>Total</span><span>$374.00</span></div>
-    </div>
-    <p class="fineprint">By placing your order you agree to our terms.</p>
-    <button class="btn" onclick="placeOrder()">Place order</button>
-  </section>
-
-  <section data-screen="confirmation">
-    <div class="done"><h1>Thank you.</h1><p class="muted">Your Aura is on its way. A receipt has been sent to your email.</p></div>
-  </section>
+<section data-screen="home" class="active"><div class="hero"><div><div class="eyebrow">Procurement intelligence</div><h1>Move every purchase forward.</h1><p>Northstar gives enterprise teams one clear path from supplier discovery to approved purchase request.</p></div><div class="hero-art"><span class="signal">NORTHSTAR SIGNAL / Q3</span><strong>84%</strong><small>spend visibility across your active categories</small></div></div><div class="section-head"><div><div class="eyebrow">Featured workflows</div><h2>Build a better buying process</h2></div><span class="muted">3 solution paths</span></div><div class="grid"><div class="card" onclick="show('product')"><div class="card-visual"><span>WORKFLOW 01</span><strong>RFQ</strong></div><h3>Strategic sourcing workspace</h3><p>Compare vendors, align stakeholders, and move from shortlist to decision.</p></div><div class="card"><div class="card-visual"><span>WORKFLOW 02</span><strong>AP</strong></div><h3>Accounts payable controls</h3><p>Coming soon · Centralize approvals and invoice visibility.</p></div><div class="card"><div class="card-visual"><span>WORKFLOW 03</span><strong>DATA</strong></div><h3>Spend intelligence</h3><p>Coming soon · See where every dollar is working.</p></div></div></section>
+<section data-screen="product"><div class="product"><div class="product-visual"><span class="signal">NORTHSTAR WORKSPACE</span><strong>RFQ</strong><small>Strategic sourcing / Enterprise plan</small></div><div><div class="eyebrow">Strategic sourcing</div><h1>Supplier decision workspace</h1><p class="price">Enterprise plan · $24,000 / year</p><p class="product-copy">Bring requirements, vendor responses, risk signals, and stakeholder approval into one decision-ready workspace.</p><ul class="spec"><li>Side-by-side vendor comparison</li><li>Approval routing with clear owners</li><li>Audit-ready decision history</li></ul><button class="btn" onclick="addToCart()">Add to request queue</button></div></div></section>
+<section data-screen="cart"><div class="eyebrow">Request queue</div><h2>Your procurement request</h2><table><tr><td>Supplier decision workspace × <span id="qty">0</span></td><td class="r" id="line">$0.00</td></tr></table><p class="fineprint">Your procurement lead will review scope and approval routing before submission.</p><span class="fake-link">View approval details</span><div style="margin-top:28px"><button class="btn" onclick="goShipping()">Continue request</button></div></section>
+<section data-screen="shipping"><div class="eyebrow">Request details</div><h2>Tell us where this belongs</h2><form id="ship" novalidate onsubmit="submitShipping(event)"><label>Requester name<input name="name" required></label><label>Work email<input name="email" type="email" required></label><label>Business unit<input name="address" required></label><label>Cost center<input name="zip" required pattern="[A-Za-z0-9-]+"></label><div class="error" id="err"></div><div><button class="btn-quiet" type="submit">Next</button></div></form></section>
+<section data-screen="review"><div class="eyebrow">Review request</div><h2>Ready for approval</h2><div class="summary"><div class="row"><span>Supplier decision workspace</span><span>$24,000</span></div><div class="row"><span>Implementation support</span><span>Included</span></div><div class="row"><span>Annual term</span><span>12 months</span></div><div class="row total"><span>Request total</span><span>$24,000</span></div></div><p class="fineprint">By submitting, this request will be routed to your procurement owner.</p><button class="btn" onclick="placeOrder()">Submit request</button></section>
+<section data-screen="confirmation"><div class="done"><div class="eyebrow">Request received</div><h1>Northstar is on its way.</h1><p class="muted">Your procurement request has been sent to the approval team.</p></div></section>
 </main>
 <script>
-var cart=0;
-function show(name){
-  document.querySelectorAll('[data-screen]').forEach(function(s){s.classList.toggle('active',s.getAttribute('data-screen')===name)});
-  window.scrollTo(0,0);
-  window.__lab&&window.__lab.view(name);
-}
-function addToCart(){cart=1;document.getElementById('count').textContent=cart;document.getElementById('qty').textContent=cart;document.getElementById('line').textContent='$349.00';}
-function goShipping(){if(cart<1){show('home');return}show('shipping')}
-function submitShipping(e){
-  e.preventDefault();
-  var f=document.getElementById('ship');
-  if(!f.checkValidity()){document.getElementById('err').textContent='Please check your details.';f.querySelectorAll('input').forEach(function(i){i.checkValidity()});return}
-  document.getElementById('err').textContent='';
-  show('review');
-}
-function placeOrder(){show('confirmation');window.__lab&&window.__lab.complete();}
-show('home');
+var cart=0;function show(name){document.querySelectorAll('[data-screen]').forEach(function(s){s.classList.toggle('active',s.getAttribute('data-screen')===name)});window.scrollTo(0,0);window.__lab&&window.__lab.view(name)}function addToCart(){cart=1;document.getElementById('count').textContent=cart;document.getElementById('qty').textContent=cart;document.getElementById('line').textContent='$24,000.00'}function goShipping(){if(cart<1){show('home');return}show('shipping')}function submitShipping(e){e.preventDefault();var f=document.getElementById('ship');if(!f.checkValidity()){document.getElementById('err').textContent='Please check your request details.';return}document.getElementById('err').textContent='';show('review')}function placeOrder(){show('confirmation');window.__lab&&window.__lab.complete()}show('home');
 </script>
-</body>
-</html>`
+</body></html>`
+
+export const SHOP_BRAND = 'Northstar'
+export const SHOP_DESCRIPTION = 'A fictional enterprise procurement platform for testing vendor discovery, approval, and purchase request flows.'
