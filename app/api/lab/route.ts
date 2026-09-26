@@ -1,6 +1,7 @@
 import { after, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { advanceLab, bootstrapLab, claimLab, createLab, getOverview, setAutopilot } from '@/lib/lab'
+import { resetDbIfUnreachable } from '@/lib/db'
 
 export const maxDuration = 800
 
@@ -9,6 +10,7 @@ export async function GET() {
     return NextResponse.json(await getOverview())
   } catch (error) {
     console.error('[lab] overview failed:', error)
+  await resetDbIfUnreachable(error)
     return NextResponse.json(
       { error: 'Cannot reach MongoDB Atlas. In Atlas → Network Access, allow 0.0.0.0/0, then reload.' },
       { status: 503 },

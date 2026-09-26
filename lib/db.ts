@@ -27,6 +27,14 @@ export async function getDb(): Promise<Db> {
   return client.db(process.env.MONGODB_DB || 'experimentation_lab')
 }
 
+export async function resetDbIfUnreachable(error: unknown) {
+  const name = error instanceof Error ? error.name : ''
+  if (!/MongoServerSelectionError|MongoNetwork|MongoTopologyClosed/.test(name)) return
+  const cached = globalForMongo._mongoClient
+  globalForMongo._mongoClient = undefined
+  await cached?.then((client) => client.close(true)).catch(() => {})
+}
+
 export async function collections() {
   const db = await getDb()
   return {
