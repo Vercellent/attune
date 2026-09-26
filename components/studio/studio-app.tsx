@@ -1,5 +1,6 @@
 'use client'
 
+import { AttuneLogo } from '@/components/attune-logo'
 import useSWR from 'swr'
 import { useState } from 'react'
 import type { Overview } from '@/lib/lab'
@@ -28,9 +29,11 @@ export function StudioApp() {
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b px-6 py-3">
-        <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-foreground" aria-hidden="true" />
-          <span className="text-sm font-medium tracking-tight">Experimentation Lab</span>
+        <div className="flex items-center gap-2.5">
+          <AttuneLogo className="h-3.5" />
+          <span className="font-serif text-xl leading-none tracking-tight" aria-hidden="true">
+            Attune
+          </span>
         </div>
         {overview && phase && (
           <button

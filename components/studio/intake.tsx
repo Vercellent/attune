@@ -33,7 +33,12 @@ export function Intake({ onStarted }: { onStarted: () => void | Promise<void> })
 
   return (
     <form onSubmit={submit} className="mx-auto flex max-w-xl flex-col gap-8 px-6 py-20">
-      <h1 className="text-balance text-3xl font-semibold tracking-tight">What do you want to optimize?</h1>
+      <div className="flex flex-col gap-4">
+        <h1 className="text-balance font-serif text-5xl font-extralight leading-[1.05] tracking-tight md:text-6xl">
+          Welcome to Attune, <span className="italic">Sarah</span>
+        </h1>
+        <p className="text-lg text-muted-foreground">What do you want to optimize?</p>
+      </div>
 
       <div className="flex flex-col gap-2">
         <label htmlFor="objective" className="text-sm font-medium">
